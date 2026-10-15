@@ -21,15 +21,27 @@ const VIDEO_BITRATE = 3_000_000;
 const RECORDER_TIMESLICE_MS = 60_000;
 
 const params = new URLSearchParams(window.location.search);
+
+function getCaptureToken() {
+  const fromQuery = params.get("token");
+  if (fromQuery) {
+    localStorage.setItem("captureToken", fromQuery);
+    return fromQuery;
+  }
+  return localStorage.getItem("captureToken") || "";
+}
+
 function defaultWhipUrl() {
   if (params.get("whip")) return params.get("whip");
   const saved = localStorage.getItem("whipUrl");
   if (saved) return saved;
   const { protocol, hostname, port } = window.location;
+  const token = getCaptureToken();
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
   if (port === "80" || port === "443" || port === "") {
-    return `${protocol}//${hostname}/live/live/whip`;
+    return `${protocol}//${hostname}/live/whip${tokenQuery}`;
   }
-  return `${protocol}//${hostname}:8889/live/whip`;
+  return `${protocol}//${hostname}/live/whip${tokenQuery}`;
 }
 
 const defaultWhip = defaultWhipUrl();
@@ -146,11 +158,17 @@ async function publishWhip(stream, whipUrl) {
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
+  const headers = {
+    "Content-Type": "application/sdp",
+  };
+  const token = getCaptureToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
   const response = await fetch(whipUrl, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/sdp",
-    },
+    headers,
     body: offer.sdp,
   });
 

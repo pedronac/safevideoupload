@@ -24,26 +24,30 @@ mkdir -p storage/raw storage/blurred caddy/data caddy/config
 docker compose up --build -d
 ```
 
-- **Viewer HLS** : [http://127.0.0.1/viewer/](http://127.0.0.1/viewer/) (flux `blurred` une fois la capture + worker actifs)
+- **Viewer HLS** : [http://127.0.0.1/viewer/](http://127.0.0.1/viewer/) (manifeste public **flouté** uniquement : `/hls/blurred/`)
 - **Capture** : [http://127.0.0.1/capture/](http://127.0.0.1/capture/)  
-  En local sans TLS : URL WHIP directe MediaMTX  
-  `http://<ip-laptop>:8889/live/whip`
+  En local sans `CAPTURE_TOKEN`, WHIP via Caddy : `http://127.0.0.1/live/whip`
 
-Sur **iPhone en production**, utiliser **HTTPS** (Caddy + domaine ou Tailscale Funnel) :
+Sur **iPhone en production**, utiliser **HTTPS** (Caddy + domaine) avec un secret :
 
-`https://stream.domaine.com/live/live/whip`
+1. Dans `.env` : `CAPTURE_TOKEN=$(openssl rand -hex 32)` puis `docker compose up -d`
+2. Ouvrir la page capture avec le token :  
+   `https://stream.domaine.com/capture/?token=VOTRE_TOKEN`
+3. L’URL WHIP par défaut devient `https://stream.domaine.com/live/whip?token=…` (en-tête `Authorization: Bearer` envoyé aussi par Safari).
+
+Le flux **brut** (`/hls/live/`) n’est **pas** exposé publiquement (404 au edge).
 
 ## Architecture
 
 ```
 [iPhone Safari] getUserMedia + overlay canvas (GPS/heure)
   ├─ MediaRecorder → sauvegarde locale (~6 h, ~7–11 Go)
-  └─ WebRTC WHIP 720p30 ~3 Mbps → Tailscale → laptop:8889/live
+  └─ WebRTC WHIP 720p30 ~3 Mbps → HTTPS → Caddy /live/whip (token)
 
 [Docker]
-  MediaMTX — enregistre brut, HLS sur chemin blurred
+  MediaMTX — enregistre brut (interne), HLS public seulement sur `blurred`
   blur     — segments RTSP → deface → RTMP mediamtx + YouTube (optionnel)
-  Caddy    — /viewer, /capture, proxy /hls et /live
+  Caddy    — /viewer, /capture, HLS flouté, WHIP authentifié
 ```
 
 ## Variables d’environnement
@@ -53,9 +57,15 @@ Voir `.env.example` :
 | Variable | Rôle |
 |----------|------|
 | `DOMAIN` | Nom pour Let's Encrypt (Caddy) |
+| `CAPTURE_TOKEN` | **Obligatoire en prod** — Bearer WHIP + `?token=` page capture |
+| `ACME_EMAIL` | E-mail Let's Encrypt |
 | `YOUTUBE_RTMP_URL` | `rtmp://a.rtmp.youtube.com/live2/<clé>` ou vide |
 | `BLUR_CHUNK_SECONDS` | Latence / charge CPU (défaut 30 s) |
 | `BLUR_PROCESS_SCALE` | Résolution analyse deface (défaut `640x360`) |
+
+### Pare-feu VPS (recommandé)
+
+Ouvrir uniquement **TCP 80**, **TCP 443** et **UDP 8189** (ICE WebRTC). Ne pas publier RTSP/RTMP/API MediaMTX sur l’hôte — le `docker-compose.yml` n’expose plus ces ports.
 
 ## Checklist test jour J
 
@@ -91,7 +101,7 @@ Tests manuels recommandés : publication WHIP depuis Safari réel, latence HLS, 
 
 Si une version Safari ne publie pas en WHIP (codec / TLS / ICE) :
 
-1. Vérifier **HTTPS**, ports **UDP 8189** et **TCP 8889** (ou Funnel)
+1. Vérifier **HTTPS**, **UDP 8189** (ICE) et `CAPTURE_TOKEN` sur l’URL capture
 2. Forcer proximité réseau Tailscale ; renseigner `webrtcAdditionalHosts` dans `mediamtx/mediamtx.yml`
 3. **Repli documenté** (hors MVP live) : envoi de segments en HTTP (non implémenté ici) — privilégier la correction WebRTC
 

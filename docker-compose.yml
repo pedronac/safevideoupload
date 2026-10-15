@@ -1,6 +1,11 @@
+# Ports exposés sur l’hôte (pare-feu VPS) :
+#   - 80, 443 : Caddy (HTTPS viewer, capture, WHIP, HLS flouté)
+#   - 8189/udp : ICE WebRTC MediaMTX (iPhone Safari si candidat host direct)
+# Tout le reste (RTSP, RTMP, API, HLS interne) reste sur le réseau Docker.
+
 services:
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:1.9.3
     container_name: safevideoupload-mediamtx
     restart: unless-stopped
     volumes:
@@ -8,13 +13,7 @@ services:
       - ./storage/raw:/storage/raw
       - ./storage/blurred:/storage/blurred
     ports:
-      - "8554:8554"
-      - "1935:1935"
-      - "8888:8888"
-      - "8889:8889"
       - "8189:8189/udp"
-      - "9997:9997"
-      - "9998:9998"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9997/v3/paths/list"]
       interval: 10s
@@ -55,6 +54,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-internal@localhost}
+      CAPTURE_TOKEN: ${CAPTURE_TOKEN:-}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web/viewer:/srv/viewer:ro

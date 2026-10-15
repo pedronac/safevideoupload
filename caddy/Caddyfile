@@ -2,29 +2,73 @@
 	email {$ACME_EMAIL}
 }
 
-# Développement local : HTTP sur le port 80
-:80 {
-	handle /capture* {
+# Bloc commun : HLS public uniquement sur le chemin flouté (pas de brut /live).
+(hls_blurred_only) {
+	handle /hls/live/* {
+		respond "Flux brut non disponible" 404
+	}
+	handle /hls/blurred/* {
+		uri strip_prefix /hls
+		reverse_proxy mediamtx:8888
+	}
+	handle /hls/* {
+		respond "Chemin HLS non autorisé" 404
+	}
+}
+
+# WHIP /live : Bearer ou ?token= si CAPTURE_TOKEN est défini.
+(whip_auth) {
+	handle /live/* {
+		@open expression `{$CAPTURE_TOKEN} == ""`
+		handle @open {
+			reverse_proxy mediamtx:8889
+		}
+		@authorized {
+			expression `{http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}" || {http.request.uri.query.token} == "{$CAPTURE_TOKEN}"`
+		}
+		handle @authorized {
+			reverse_proxy mediamtx:8889
+		}
+		respond "Token capture requis (Authorization: Bearer ou ?token=)" 401
+	}
+}
+
+# Page capture : optionnellement protégée par ?token= (assets statiques laissés ouverts).
+(capture_pages) {
+	@capture_static {
+		path /capture/*.js /capture/*.css
+	}
+	handle @capture_static {
 		root * /srv/capture
-		try_files {path} /index.html
 		file_server
 	}
+	handle /capture* {
+		@open expression `{$CAPTURE_TOKEN} == ""`
+		handle @open {
+			root * /srv/capture
+			try_files {path} /index.html
+			file_server
+		}
+		@page_authorized expression `{http.request.uri.query.token} == "{$CAPTURE_TOKEN}"`
+		handle @page_authorized {
+			root * /srv/capture
+			try_files {path} /index.html
+			file_server
+		}
+		respond "Ajoutez ?token=<CAPTURE_TOKEN> à l’URL capture" 401
+	}
+}
+
+# Développement local : HTTP sur le port 80
+:80 {
+	import hls_blurred_only
+	import whip_auth
+	import capture_pages
 
 	handle /viewer* {
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
-	}
-
-	# HLS MediaMTX (proxy sans TLS en local)
-	handle /hls/* {
-		uri strip_prefix /hls
-		reverse_proxy mediamtx:8888
-	}
-
-	# WHIP / pages WebRTC MediaMTX
-	handle /live/* {
-		reverse_proxy mediamtx:8889
 	}
 
 	handle / {
@@ -40,25 +84,14 @@
 		# TLS géré automatiquement par Caddy
 	}
 
-	handle /capture* {
-		root * /srv/capture
-		try_files {path} /index.html
-		file_server
-	}
+	import hls_blurred_only
+	import whip_auth
+	import capture_pages
 
 	handle /viewer* {
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
-	}
-
-	handle /hls/* {
-		uri strip_prefix /hls
-		reverse_proxy mediamtx:8888
-	}
-
-	handle /live/* {
-		reverse_proxy mediamtx:8889
 	}
 
 	handle / {
