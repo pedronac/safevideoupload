@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Direct marathon — HLS</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 0;
+        background: #0f1115;
+        color: #eee;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1rem;
+        box-sizing: border-box;
+      }
+      h1 {
+        font-size: 1.1rem;
+        font-weight: 600;
+      }
+      video {
+        width: min(960px, 100%);
+        background: #000;
+        border-radius: 8px;
+      }
+      #status {
+        font-size: 0.85rem;
+        opacity: 0.8;
+        margin-top: 0.5rem;
+      }
+      a {
+        color: #7eb6ff;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  </head>
+  <body>
+    <h1>Flux public (visages floutés)</h1>
+    <video id="video" controls playsinline></video>
+    <p id="status">Chargement…</p>
+    <p>
+      <a href="/capture/">Page capture iPhone</a>
+    </p>
+    <script>
+      const video = document.getElementById("video");
+      const status = document.getElementById("status");
+      const params = new URLSearchParams(location.search);
+      const streamPath = params.get("path") || "blurred";
+      const hlsUrl =
+        params.get("src") ||
+        `${location.origin}/hls/${streamPath}/index.m3u8`;
+
+      function play() {
+        if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = hlsUrl;
+          video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
+          status.textContent = "Lecture native HLS (Safari)";
+          return;
+        }
+        if (window.Hls && Hls.isSupported()) {
+          const hls = new Hls({ lowLatencyMode: true });
+          hls.loadSource(hlsUrl);
+          hls.attachMedia(video);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            status.textContent = "Lecture hls.js";
+            video.play().catch(() => {});
+          });
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) status.textContent = `Erreur HLS : ${data.type}`;
+          });
+          return;
+        }
+        status.textContent = "HLS non supporté sur ce navigateur";
+      }
+
+      play();
+    </script>
+  </body>
+</html>

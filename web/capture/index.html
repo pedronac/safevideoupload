@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Capture marathon — safevideoupload</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Capture live</h1>
+      <p id="status" class="status">Prêt</p>
+    </header>
+
+    <main>
+      <video id="preview" playsinline muted autoplay></video>
+      <canvas id="overlay-canvas" width="1280" height="720" hidden></canvas>
+
+      <section class="panel">
+        <label>
+          URL WHIP (MediaMTX)
+          <input id="whip-url" type="url" spellcheck="false" />
+        </label>
+        <p class="hint">
+          Ex. <code>https://stream.domaine.com/live/live/whip</code> ou
+          <code>http://&lt;tailscale-ip&gt;:8889/live/whip</code> en test LAN.
+          Safari iOS exige HTTPS hors localhost.
+        </p>
+
+        <div class="actions">
+          <button id="btn-start" type="button">Démarrer diffusion</button>
+          <button id="btn-stop" type="button" disabled>Arrêter</button>
+          <button id="btn-backup" type="button" disabled>Télécharger sauvegarde</button>
+        </div>
+
+        <dl class="meta">
+          <dt>GPS</dt>
+          <dd id="gps">—</dd>
+          <dt>Heure</dt>
+          <dd id="clock">—</dd>
+          <dt>Sauvegarde locale</dt>
+          <dd id="backup-size">0 Mo</dd>
+        </dl>
+      </section>
+    </main>
+
+    <script src="capture.js" type="module"></script>
+  </body>
+</html>

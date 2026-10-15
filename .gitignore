@@ -1,0 +1,10 @@
+.env
+storage/
+*.log
+.DS_Store
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.caddy-data/
+agent-tools/

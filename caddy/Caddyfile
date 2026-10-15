@@ -1,0 +1,67 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Développement local : HTTP sur le port 80
+:80 {
+	handle /capture* {
+		root * /srv/capture
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle /viewer* {
+		root * /srv/viewer
+		try_files {path} /index.html
+		file_server
+	}
+
+	# HLS MediaMTX (proxy sans TLS en local)
+	handle /hls/* {
+		uri strip_prefix /hls
+		reverse_proxy mediamtx:8888
+	}
+
+	# WHIP / pages WebRTC MediaMTX
+	handle /live/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	handle / {
+		redir /viewer/ permanent
+	}
+}
+
+# Production : TLS automatique (Let's Encrypt) quand DOMAIN != localhost
+{$DOMAIN} {
+	@notLocalhost expression {$DOMAIN} != "localhost"
+
+	handle @notLocalhost {
+		# TLS géré automatiquement par Caddy
+	}
+
+	handle /capture* {
+		root * /srv/capture
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle /viewer* {
+		root * /srv/viewer
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle /hls/* {
+		uri strip_prefix /hls
+		reverse_proxy mediamtx:8888
+	}
+
+	handle /live/* {
+		reverse_proxy mediamtx:8889
+	}
+
+	handle / {
+		redir /viewer/ permanent
+	}
+}

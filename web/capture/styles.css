@@ -1,0 +1,90 @@
+:root {
+  color-scheme: dark light;
+  font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+  line-height: 1.4;
+}
+
+body {
+  margin: 0;
+  padding: 0 1rem 2rem;
+  max-width: 720px;
+  margin-inline: auto;
+}
+
+header h1 {
+  font-size: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.status {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+#preview {
+  width: 100%;
+  background: #111;
+  border-radius: 8px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+.panel {
+  margin-top: 1rem;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+input[type="url"] {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.hint {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+button {
+  flex: 1 1 auto;
+  min-height: 44px;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: 1px solid #888;
+  background: #2a6df4;
+  color: #fff;
+  padding: 0.5rem 1rem;
+}
+
+button:disabled {
+  opacity: 0.5;
+}
+
+#btn-stop {
+  background: #444;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  font-size: 0.9rem;
+}
+
+.meta dt {
+  font-weight: 600;
+}

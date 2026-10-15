@@ -1,0 +1,63 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: safevideoupload-mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - ./storage/raw:/storage/raw
+      - ./storage/blurred:/storage/blurred
+    ports:
+      - "8554:8554"
+      - "1935:1935"
+      - "8888:8888"
+      - "8889:8889"
+      - "8189:8189/udp"
+      - "9997:9997"
+      - "9998:9998"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9997/v3/paths/list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  blur:
+    build:
+      context: ./services/blur
+    container_name: safevideoupload-blur
+    restart: unless-stopped
+    depends_on:
+      mediamtx:
+        condition: service_healthy
+    environment:
+      MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554/live}
+      MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://mediamtx:1935/blurred}
+      YOUTUBE_RTMP_URL: ${YOUTUBE_RTMP_URL:-}
+      BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-30}
+      BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-640x360}
+      BLURRED_DIR: /storage/blurred/chunks
+      RAW_MIRROR_DIR: /storage/blurred/rtmp_mirror
+    volumes:
+      - ./storage/blurred:/storage/blurred
+      - ./storage/raw:/storage/raw:ro
+    command: ["python", "-u", "/app/blur_worker.py"]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: safevideoupload-caddy
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-internal@localhost}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web/viewer:/srv/viewer:ro
+      - ./web/capture:/srv/capture:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config

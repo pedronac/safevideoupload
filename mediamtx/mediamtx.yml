@@ -1,0 +1,51 @@
+# Configuration minimale safevideoupload — ingest WebRTC/WHIP, enregistrement brut, HLS flouté
+
+logLevel: info
+logDestinations: [stdout]
+
+api: true
+apiAddress: :9997
+
+metrics: true
+metricsAddress: :9998
+
+rtmp: true
+rtmpAddress: :1935
+
+rtsp: true
+rtspAddress: :8554
+
+hls: true
+hlsAddress: :8888
+hlsAlwaysRemux: true
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+
+webrtc: true
+webrtcAddress: :8889
+webrtcEncryption: false
+webrtcAllowOrigins: ["*"]
+webrtcLocalUDPAddress: :8189
+# En production derrière Caddy/Tailscale, définir l'IP ou le hostname Tailscale :
+# webrtcAdditionalHosts: ["100.x.x.x"]
+
+paths:
+  live:
+    source: publisher
+    record: true
+    recordPath: /storage/raw/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 1h
+    recordDeleteAfter: 0s
+
+  blurred:
+    source: publisher
+    record: true
+    recordPath: /storage/blurred/%path/%Y-%m-%d_%H-%M-%S-%f
+    recordFormat: fmp4
+    recordPartDuration: 1s
+    recordSegmentDuration: 1h
+    recordDeleteAfter: 0s
