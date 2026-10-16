@@ -21,7 +21,7 @@ téléphone  --WHIP/WebRTC-->  Caddy (HTTPS, Bearer)  -->  MediaMTX 1.9.3  (chem
 
 ```bash
 cp .env.example .env            # puis éditer DOMAIN, ACME_EMAIL
-openssl rand -hex 32            # à coller dans CAPTURE_TOKEN (mot de passe de capture)
+openssl rand -hex 32            # CAPTURE_TOKEN (mot de passe opérateur) et ADMIN_TOKEN (page /admin/)
 mkdir -p storage/raw storage/blurred caddy/data caddy/config
 docker compose up -d --build
 ```
@@ -33,8 +33,8 @@ cd /opt/safevideoupload && git pull --rebase origin cursor/streaming-mvp-maratho
 docker compose up -d --build --force-recreate
 ```
 
-`CAPTURE_TOKEN` est **obligatoire** : `docker compose` refuse de démarrer s'il est vide, et Caddy refuse
-tout accès à `/live/*` et `/capture-auth` s'il est vide (fail closed).
+`CAPTURE_TOKEN` et `ADMIN_TOKEN` sont **obligatoires** : `docker compose` refuse de démarrer s'ils sont vides.
+Caddy refuse tout accès à `/live/*`, `/capture-auth`, `/admin-auth` et `/storage-download/*` sans le bon jeton (fail closed).
 
 ### Mot de passe de capture (`CAPTURE_TOKEN`)
 
@@ -44,8 +44,17 @@ tout accès à `/live/*` et `/capture-auth` s'il est vide (fail closed).
   cookie ou un lien. Le navigateur le garde en `sessionStorage` (ou `localStorage` si « Se souvenir de ce
   téléphone » est coché — décoché par défaut).
 - Sur le serveur : `POST /capture-auth` répond `204` si `Authorization: Bearer <CAPTURE_TOKEN>` correspond,
-  `401` sinon. WHIP (`/live/*`) n'accepte que ce même en-tête Bearer. Changer le mot de passe =
-  modifier `.env` puis `docker compose up -d --force-recreate caddy`.
+  `401` sinon. WHIP (`/live/*`) n'accepte que ce même en-tête Bearer.
+- Pour changer le mot de passe sans éditer le VPS à la main : page **`https://<DOMAIN>/admin/`** (jeton
+  `ADMIN_TOKEN`), formulaire « Mot de passe capture » — le service admin met à jour `.env` et recrée Caddy.
+
+### Administration (`ADMIN_TOKEN`)
+
+- URL : `https://<DOMAIN>/admin/` — connexion avec `ADMIN_TOKEN` (distinct de `CAPTURE_TOKEN`).
+- Liste les fichiers sous `storage/raw` et `storage/blurred`, téléchargement authentifié via
+  `/storage-download/raw/*` et `/storage-download/blurred/*`.
+- API interne (derrière Caddy) : `GET /admin/api/recordings`, `POST /admin/api/capture-token` avec
+  `Authorization: Bearer <ADMIN_TOKEN>`.
 
 ### Pare-feu
 
@@ -69,8 +78,9 @@ si l'IP du VPS change, la mettre à jour à cet endroit.
    portrait est voulu, l'image est **recadrée au centre** et l'état l'indique (« Caméra 1280x720 → sortie
    720x1280 (recadrage centré…) »).
 
-La latence du direct public vaut environ `BLUR_CHUNK_SECONDS` (30 s par défaut) + le temps de floutage.
-Le premier segment flouté n'apparaît donc que 40–60 s après le début du direct.
+La latence du direct public vaut environ `BLUR_CHUNK_SECONDS` (**6 s** par défaut) + le temps de floutage
+(compromis CPU : segments plus courts = moins de retard mais plus de charge). Le premier segment flouté
+apparaît en pratique ~10–20 s après le début du direct selon le CPU.
 
 ## Le worker de floutage
 

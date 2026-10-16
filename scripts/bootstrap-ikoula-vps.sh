@@ -88,13 +88,14 @@ prepare_env_and_storage() {
   if [[ ! -f .env ]]; then
     cp .env.example .env
     sed -i "s|^CAPTURE_TOKEN=.*|CAPTURE_TOKEN=$(openssl rand -hex 32)|" .env
-    log "Fichier .env créé depuis .env.example (CAPTURE_TOKEN généré : à lire dans .env)"
+    sed -i "s|^ADMIN_TOKEN=.*|ADMIN_TOKEN=$(openssl rand -hex 32)|" .env
+    log "Fichier .env créé depuis .env.example (CAPTURE_TOKEN et ADMIN_TOKEN générés : à lire dans .env)"
     echo ""
     echo "┌─────────────────────────────────────────────────────────────────┐"
     echo "│  À FAIRE avant production : éditer ${INSTALL_DIR}/.env          │"
     echo "│  • DOMAIN=stream.votredomaine.fr                                │"
     echo "│  • ACME_EMAIL=ops@votredomaine.fr                               │"
-    echo "│  • CAPTURE_TOKEN : déjà généré (mot de passe de la capture)     │"
+    echo "│  • CAPTURE_TOKEN / ADMIN_TOKEN : déjà générés (voir .env)       │"
     echo "│  Puis : cd ${INSTALL_DIR} && docker compose up -d               │"
     echo "└─────────────────────────────────────────────────────────────────┘"
     echo ""

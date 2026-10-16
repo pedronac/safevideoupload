@@ -66,6 +66,63 @@
 	}
 }
 
+# Administration : jeton séparé de CAPTURE_TOKEN.
+(admin_auth) {
+	handle /admin-auth {
+		header Cache-Control "no-store"
+		@authorized expression `"{$ADMIN_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$ADMIN_TOKEN}"`
+		handle @authorized {
+			respond 204
+		}
+		handle {
+			respond "Jeton administrateur invalide" 401
+		}
+	}
+}
+
+(admin_api) {
+	handle /admin/api/* {
+		uri strip_prefix /admin
+		reverse_proxy admin:8080
+	}
+}
+
+(admin_pages) {
+	redir /admin /admin/ 308
+	handle_path /admin/* {
+		header Cache-Control "no-cache"
+		root * /srv/admin
+		file_server
+	}
+}
+
+(storage_download) {
+	handle /storage-download/raw/* {
+		header Cache-Control "no-store"
+		@authorized expression `"{$ADMIN_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$ADMIN_TOKEN}"`
+		handle @authorized {
+			uri strip_prefix /storage-download/raw
+			root * /storage/raw
+			file_server
+		}
+		handle {
+			respond "Authentification requise" 401
+		}
+	}
+	handle /storage-download/blurred/* {
+		header Cache-Control "no-store"
+		@authorized expression `"{$ADMIN_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$ADMIN_TOKEN}"`
+		handle @authorized {
+			uri strip_prefix /storage-download/blurred
+			root * /storage/blurred
+			file_server
+		}
+		handle {
+			respond "Authentification requise" 401
+		}
+	}
+}
+
 (viewer_pages) {
 	redir /viewer /viewer/ 308
 	handle /viewer* {
@@ -89,6 +146,10 @@ http://localhost {
 	import whip_auth
 	import capture_auth
 	import capture_pages
+	import admin_auth
+	import admin_api
+	import admin_pages
+	import storage_download
 	import viewer_pages
 }
 
@@ -99,5 +160,9 @@ http://localhost {
 	import whip_auth
 	import capture_auth
 	import capture_pages
+	import admin_auth
+	import admin_api
+	import admin_pages
+	import storage_download
 	import viewer_pages
 }

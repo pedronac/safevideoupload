@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Administration marathon</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #12141a;
+        color: #eee;
+        line-height: 1.45;
+      }
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 1.25rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+        margin: 0 0 1rem;
+      }
+      section {
+        background: #1a1d26;
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 1rem;
+      }
+      label {
+        display: block;
+        font-size: 0.9rem;
+        margin-bottom: 0.35rem;
+      }
+      input[type="password"],
+      input[type="text"] {
+        width: 100%;
+        max-width: 28rem;
+        box-sizing: border-box;
+        padding: 0.5rem 0.6rem;
+        border-radius: 6px;
+        border: 1px solid #3a4050;
+        background: #0f1115;
+        color: #eee;
+      }
+      button {
+        margin-top: 0.6rem;
+        padding: 0.45rem 0.9rem;
+        border-radius: 6px;
+        border: none;
+        background: #3d6fd6;
+        color: #fff;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #3a4050;
+      }
+      .error {
+        color: #ffb4a8;
+        min-height: 1.2em;
+      }
+      .ok {
+        color: #9fd89f;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 0.45rem 0.35rem;
+        border-bottom: 1px solid #2a2f3a;
+        vertical-align: top;
+      }
+      th {
+        color: #aab2c0;
+        font-weight: 600;
+      }
+      a {
+        color: #9ec5ff;
+      }
+      #gate[hidden],
+      #app[hidden] {
+        display: none;
+      }
+      .meta {
+        font-size: 0.85rem;
+        opacity: 0.85;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="gate">
+        <h1>Administration</h1>
+        <form id="gate-form">
+          <label for="admin-token">Jeton administrateur</label>
+          <input id="admin-token" type="password" autocomplete="current-password" required />
+          <button type="submit">Connexion</button>
+          <p id="gate-error" class="error" role="alert"></p>
+        </form>
+      </section>
+
+      <div id="app" hidden>
+        <h1>Administration marathon</h1>
+        <p class="meta">
+          Gestion du mot de passe de capture et des enregistrements sur le serveur. Le jeton admin est distinct du
+          mot de passe opérateur.
+        </p>
+
+        <section>
+          <h2 style="font-size: 1rem; margin: 0 0 0.75rem">Mot de passe capture</h2>
+          <form id="capture-form">
+            <label for="capture-token">Nouveau CAPTURE_TOKEN</label>
+            <input id="capture-token" type="password" minlength="16" autocomplete="new-password" required />
+            <button type="submit">Enregistrer et recharger Caddy</button>
+            <p id="capture-msg" class="error" role="status"></p>
+          </form>
+        </section>
+
+        <section>
+          <h2 style="font-size: 1rem; margin: 0 0 0.75rem">Enregistrements</h2>
+          <button type="button" id="btn-refresh" class="secondary">Actualiser</button>
+          <p id="recordings-msg" class="error" role="status"></p>
+          <table>
+            <thead>
+              <tr>
+                <th>Dossier</th>
+                <th>Fichier</th>
+                <th>Taille</th>
+                <th>Modifié</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="recordings-body"></tbody>
+          </table>
+        </section>
+
+        <button type="button" id="btn-logout" class="secondary">Déconnexion</button>
+      </div>
+    </main>
+
+    <script>
+      const TOKEN_KEY = "adminToken";
+      const gate = document.getElementById("gate");
+      const app = document.getElementById("app");
+      const gateForm = document.getElementById("gate-form");
+      const gateError = document.getElementById("gate-error");
+      const adminTokenInput = document.getElementById("admin-token");
+      const captureForm = document.getElementById("capture-form");
+      const captureTokenInput = document.getElementById("capture-token");
+      const captureMsg = document.getElementById("capture-msg");
+      const recordingsBody = document.getElementById("recordings-body");
+      const recordingsMsg = document.getElementById("recordings-msg");
+
+      function token() {
+        return sessionStorage.getItem(TOKEN_KEY) || "";
+      }
+
+      function setToken(value) {
+        if (value) sessionStorage.setItem(TOKEN_KEY, value);
+        else sessionStorage.removeItem(TOKEN_KEY);
+      }
+
+      async function verifyAdminToken(t) {
+        const res = await fetch("/admin-auth", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${t}` },
+          cache: "no-store",
+        });
+        return res.status === 204;
+      }
+
+      function showGate(msg = "") {
+        app.hidden = true;
+        gate.hidden = false;
+        gateError.textContent = msg;
+      }
+
+      function showApp() {
+        gate.hidden = true;
+        app.hidden = false;
+        gateError.textContent = "";
+      }
+
+      async function api(path, options = {}) {
+        const headers = { ...(options.headers || {}), Authorization: `Bearer ${token()}` };
+        if (options.body) headers["Content-Type"] = "application/json";
+        const res = await fetch(`/admin/api${path}`, { ...options, headers, cache: "no-store" });
+        const text = await res.text();
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = null;
+        }
+        if (res.status === 401) {
+          setToken("");
+          showGate("Session expirée. Reconnectez-vous.");
+          throw new Error("unauthorized");
+        }
+        if (!res.ok) {
+          throw new Error((data && data.error) || `HTTP ${res.status}`);
+        }
+        return data;
+      }
+
+      function formatBytes(n) {
+        if (n < 1024) return `${n} o`;
+        if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
+        if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
+        return `${(n / (1024 * 1024 * 1024)).toFixed(2)} Go`;
+      }
+
+      function formatTime(ts) {
+        return new Date(ts * 1000).toLocaleString("fr-FR", { timeZone: "Europe/Paris" });
+      }
+
+      async function downloadFile(url) {
+        recordingsMsg.textContent = "Téléchargement…";
+        recordingsMsg.className = "";
+        try {
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${token()}` },
+            cache: "no-store",
+          });
+          if (res.status === 401) {
+            setToken("");
+            showGate("Session expirée. Reconnectez-vous.");
+            return;
+          }
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          const name = url.split("/").pop() || "fichier";
+          const objectUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = objectUrl;
+          a.download = name;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+          recordingsMsg.textContent = "";
+        } catch (err) {
+          recordingsMsg.textContent = err.message || String(err);
+          recordingsMsg.className = "error";
+        }
+      }
+
+      async function loadRecordings() {
+        recordingsMsg.textContent = "Chargement…";
+        recordingsMsg.className = "";
+        try {
+          const data = await api("/recordings");
+          const rows = (data.recordings || [])
+            .map(
+              (r) =>
+                `<tr>
+                  <td>${r.bucket}</td>
+                  <td><code>${r.path}</code></td>
+                  <td>${formatBytes(r.size)}</td>
+                  <td>${formatTime(r.mtime)}</td>
+                  <td><button type="button" class="dl secondary" data-url="${r.download}">Télécharger</button></td>
+                </tr>`,
+            )
+            .join("");
+          recordingsBody.innerHTML =
+            rows || '<tr><td colspan="5">Aucun fichier pour l’instant.</td></tr>';
+          recordingsBody.querySelectorAll("button.dl").forEach((btn) => {
+            btn.addEventListener("click", () => downloadFile(btn.dataset.url));
+          });
+          recordingsMsg.textContent = "";
+        } catch (err) {
+          if (err.message !== "unauthorized") {
+            recordingsMsg.textContent = err.message || String(err);
+            recordingsMsg.className = "error";
+          }
+        }
+      }
+
+      gateForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const t = adminTokenInput.value.trim();
+        if (!t) return;
+        gateError.textContent = "Vérification…";
+        const ok = await verifyAdminToken(t);
+        if (!ok) {
+          gateError.textContent = "Jeton administrateur invalide.";
+          return;
+        }
+        setToken(t);
+        showApp();
+        await loadRecordings();
+      });
+
+      captureForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        captureMsg.textContent = "Mise à jour…";
+        captureMsg.className = "";
+        try {
+          await api("/capture-token", {
+            method: "POST",
+            body: JSON.stringify({ token: captureTokenInput.value.trim() }),
+          });
+          captureTokenInput.value = "";
+          captureMsg.textContent = "Mot de passe capture mis à jour. Caddy a été rechargé.";
+          captureMsg.className = "ok";
+        } catch (err) {
+          if (err.message !== "unauthorized") {
+            captureMsg.textContent = err.message || String(err);
+            captureMsg.className = "error";
+          }
+        }
+      });
+
+      document.getElementById("btn-refresh").addEventListener("click", () => loadRecordings());
+      document.getElementById("btn-logout").addEventListener("click", () => {
+        setToken("");
+        showGate();
+      });
+
+      (async () => {
+        const t = token();
+        if (!t) {
+          showGate();
+          return;
+        }
+        if (await verifyAdminToken(t)) {
+          showApp();
+          await loadRecordings();
+        } else {
+          setToken("");
+          showGate("Jeton expiré ou modifié.");
+        }
+      })();
+    </script>
+  </body>
+</html>

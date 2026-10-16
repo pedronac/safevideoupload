@@ -95,5 +95,5 @@ cat <<'EOF'
   - Aucun paquet : le pare-feu (VPS ou fournisseur) ou l'opérateur bloque 8189.
   - Paquets entrants mais pas de réponse : problème de routage Docker / webrtcAdditionalHosts.
   - Paquets dans les deux sens mais « closed: deadline exceeded » : vérifier DTLS / codecs dans les logs mediamtx.
-  Sur le téléphone, la page /capture/ affiche l'état ICE, le chemin réseau et les candidats du serveur.
+  Sur le téléphone, la page /capture/ affiche l'état ICE, le chemin réseau et l'envoi (sans adresses serveur).
 EOF

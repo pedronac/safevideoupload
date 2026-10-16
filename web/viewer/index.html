@@ -108,13 +108,15 @@
       const HLS_URL = `${location.origin}/hls/blurred/index.m3u8`;
       const WAIT_RETRY_MS = 4000;
       const ERROR_RETRY_MS = 6000;
-      const STALL_LIMIT_MS = 25000;
+      const STALL_LIMIT_MS = 100000;
+      const STALL_RECOVER_ATTEMPTS = 4;
 
       let hls = null;
       let retryTimer = null;
       let watchdog = null;
       let lastTime = -1;
       let lastProgress = Date.now();
+      let stallRecoveries = 0;
 
       function showOverlay(text, isError) {
         overlayText.textContent = text;
@@ -196,15 +198,36 @@
           if (video.currentTime !== lastTime) {
             lastTime = video.currentTime;
             lastProgress = Date.now();
+            stallRecoveries = 0;
           } else if (Date.now() - lastProgress > STALL_LIMIT_MS) {
-            waitingForLive();
+            if (stallRecoveries < STALL_RECOVER_ATTEMPTS) {
+              stallRecoveries += 1;
+              statusEl.textContent =
+                "Pause du flux (traitement du segment) — reprise automatique…";
+              recoverFromStall();
+            } else {
+              waitingForLive();
+            }
           }
         }, 5000);
       }
 
       function onPlaying() {
         hideOverlay();
+        stallRecoveries = 0;
         statusEl.textContent = "Direct en cours";
+      }
+
+      function recoverFromStall() {
+        if (hls) {
+          try {
+            hls.startLoad(-1);
+          } catch {
+            /* ignore */
+          }
+        }
+        video.play().catch(() => {});
+        lastProgress = Date.now();
       }
 
       function startPlayer() {
@@ -219,6 +242,9 @@
             const code = data.response && data.response.code;
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
               hls.recoverMediaError();
+            } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR && stallRecoveries < STALL_RECOVER_ATTEMPTS) {
+              stallRecoveries += 1;
+              recoverFromStall();
             } else if (code === 404 || code === undefined || code === 0) {
               waitingForLive();
             } else {

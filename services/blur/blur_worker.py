@@ -44,13 +44,13 @@ log = logging.getLogger("blur_worker")
 RTSP_URL = os.environ.get("MEDIAMTX_RTSP_URL", "rtsp://mediamtx:8554/live")
 RTMP_MTX = os.environ.get("MEDIAMTX_RTMP_URL", "rtmp://mediamtx:1935/blurred")
 YOUTUBE_RTMP = os.environ.get("YOUTUBE_RTMP_URL", "").strip()
-CHUNK_SECONDS = int(os.environ.get("BLUR_CHUNK_SECONDS", "30"))
+CHUNK_SECONDS = int(os.environ.get("BLUR_CHUNK_SECONDS", "6"))
 SCALE = os.environ.get("BLUR_PROCESS_SCALE", "640x360")
 BLURRED_DIR = Path(os.environ.get("BLURRED_DIR", "/storage/blurred/chunks"))
 WORK_DIR = Path(os.environ.get("BLUR_WORK_DIR", "/tmp/blur_work"))
 MAX_PUSH_BACKLOG = int(os.environ.get("BLUR_MAX_PUSH_BACKLOG", "4"))
 MAX_RAW_BACKLOG = int(os.environ.get("BLUR_MAX_RAW_BACKLOG", "3"))
-PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "20"))
+PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "120"))
 MIN_SEGMENT_BYTES = 2048
 # Marge entre segments : évite les DTS audio non monotones à la jonction.
 CHUNK_GAP_S = 0.1

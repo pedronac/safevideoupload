@@ -53,8 +53,10 @@
             <option value="landscape">Paysage (horizontal)</option>
           </select>
 
-          <label for="whip-url">Adresse du direct (WHIP)</label>
-          <input id="whip-url" type="url" spellcheck="false" readonly />
+          <p class="hint">
+            Le direct part vers <code>/live/whip</code> sur ce site (protocole WHIP : POST + SDP + jeton Bearer).
+            Ouvrir cette adresse dans un navigateur affiche « Authentification requise » : ce n’est pas une page web.
+          </p>
 
           <div class="actions">
             <button id="btn-start" type="button">Démarrer diffusion</button>
@@ -73,8 +75,6 @@
             <dd id="net-path">—</dd>
             <dt>Envoi</dt>
             <dd id="net-send">—</dd>
-            <dt>Serveur (candidats)</dt>
-            <dd id="net-candidates">—</dd>
             <dt>GPS</dt>
             <dd id="gps">—</dd>
             <dt>Heure</dt>

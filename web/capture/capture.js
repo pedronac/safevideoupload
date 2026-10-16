@@ -22,7 +22,6 @@ const previewFrame = $("preview-frame");
 const previewPlaceholder = $("preview-placeholder");
 const statusEl = $("status");
 const framingEl = $("framing");
-const whipInput = $("whip-url");
 const orientationSelect = $("orientation");
 const btnStart = $("btn-start");
 const btnStop = $("btn-stop");
@@ -36,7 +35,6 @@ const netConnection = $("net-connection");
 const netIce = $("net-ice");
 const netPath = $("net-path");
 const netSend = $("net-send");
-const netCandidates = $("net-candidates");
 
 const TARGET_FPS = 30;
 const LONG_SIDE = 1280;
@@ -393,7 +391,6 @@ function resetNetPanel() {
   netIce.textContent = "—";
   netPath.textContent = "—";
   netSend.textContent = "—";
-  netCandidates.textContent = "—";
   setNetError("");
 }
 
@@ -468,15 +465,6 @@ function waitIceGathering(pc, timeoutMs) {
     const timer = setTimeout(done, timeoutMs);
     pc.addEventListener("icegatheringstatechange", onChange);
   });
-}
-
-function parseServerCandidates(sdp) {
-  const found = [];
-  for (const line of sdp.split(/\r?\n/)) {
-    const m = line.match(/^a=candidate:\S+ \d+ (\w+) \d+ (\S+) (\d+) typ (\w+)/i);
-    if (m) found.push(`${m[1].toLowerCase()} ${m[2]}:${m[3]} (${m[4]})`);
-  }
-  return [...new Set(found)];
 }
 
 class AuthRejectedError extends Error {}
@@ -641,7 +629,6 @@ async function runPublishAttempt(stream, token, myToken) {
     await waitIceGathering(pc, ICE_GATHER_TIMEOUT_MS);
     const { answer, resourceUrl } = await whipOffer(pc, token);
     session.resourceUrl = resourceUrl;
-    netCandidates.textContent = parseServerCandidates(answer).join(" · ") || "aucun candidat annoncé";
     await pc.setRemoteDescription({ type: "answer", sdp: answer });
     renderNet(pc);
 
@@ -840,8 +827,6 @@ function syncIdlePreviewAspect() {
 orientationSelect.addEventListener("change", syncIdlePreviewAspect);
 window.matchMedia("(orientation: portrait)").addEventListener("change", syncIdlePreviewAspect);
 syncIdlePreviewAspect();
-
-whipInput.value = WHIP_ENDPOINT;
 
 window.__capture = {
   fitOutputSize,

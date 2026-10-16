@@ -32,12 +32,31 @@ services:
       MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554/live}
       MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://mediamtx:1935/blurred}
       YOUTUBE_RTMP_URL: ${YOUTUBE_RTMP_URL:-}
-      BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-30}
+      BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-6}
+      BLUR_PUSH_IDLE_CLOSE_S: ${BLUR_PUSH_IDLE_CLOSE_S:-120}
       BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-640x360}
       BLURRED_DIR: /storage/blurred/chunks
     volumes:
       - ./storage/blurred:/storage/blurred
     command: ["python", "-u", "/app/blur_worker.py"]
+
+  admin:
+    build:
+      context: ./services/admin
+    container_name: safevideoupload-admin
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN requis (openssl rand -hex 32)}
+      PROJECT_DIR: /project
+      ENV_FILE: /project/.env
+      COMPOSE_FILE: /project/docker-compose.yml
+      STORAGE_RAW: /storage/raw
+      STORAGE_BLURRED: /storage/blurred
+    volumes:
+      - .:/project
+      - ./storage/raw:/storage/raw:ro
+      - ./storage/blurred:/storage/blurred:ro
+      - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
     image: caddy:2-alpine
@@ -45,6 +64,7 @@ services:
     restart: unless-stopped
     depends_on:
       - mediamtx
+      - admin
     ports:
       - "80:80"
       - "443:443"
@@ -52,9 +72,13 @@ services:
       DOMAIN: ${DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-internal@localhost}
       CAPTURE_TOKEN: ${CAPTURE_TOKEN:?CAPTURE_TOKEN requis (openssl rand -hex 32)}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN requis (openssl rand -hex 32)}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web/viewer:/srv/viewer:ro
       - ./web/capture:/srv/capture:ro
+      - ./web/admin:/srv/admin:ro
+      - ./storage/raw:/storage/raw:ro
+      - ./storage/blurred:/storage/blurred:ro
       - ./caddy/data:/data
       - ./caddy/config:/config

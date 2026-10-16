@@ -25,6 +25,13 @@ if [ -z "${CAPTURE_TOKEN:-}" ]; then
   echo "ERREUR : CAPTURE_TOKEN introuvable (variable d'environnement ou .env)"
   exit 1
 fi
+if [ -z "${ADMIN_TOKEN:-}" ] && [ -f .env ]; then
+  ADMIN_TOKEN="$(grep -E '^ADMIN_TOKEN=' .env | tail -n1 | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+fi
+if [ -z "${ADMIN_TOKEN:-}" ]; then
+  echo "ERREUR : ADMIN_TOKEN introuvable (variable d'environnement ou .env)"
+  exit 1
+fi
 
 fail=0
 check() { # check "description" attendu obtenu
@@ -111,6 +118,19 @@ if [ "$hls_code" = "200" ] || [ "$hls_code" = "404" ]; then
   echo "  OK   /hls/blurred répond HTTP $hls_code (404 = aucun direct en cours)"
 else
   echo "  ECHEC /hls/blurred : HTTP $hls_code"
+  fail=1
+fi
+
+echo "==> Administration (/admin-auth)"
+check "admin sans jeton" 401 "$(code -X POST "$BASE_URL/admin-auth")"
+check "admin mauvais jeton" 401 "$(code -X POST -H "Authorization: Bearer mauvais-$$" "$BASE_URL/admin-auth")"
+check "admin bon jeton" 204 "$(code -X POST -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/admin-auth")"
+check "page admin" 200 "$(code "$BASE_URL/admin/")"
+admin_api_code="$(code -H "Authorization: Bearer $ADMIN_TOKEN" "$BASE_URL/admin/api/recordings")"
+if [ "$admin_api_code" = "200" ]; then
+  echo "  OK   GET /admin/api/recordings (HTTP 200)"
+else
+  echo "  ECHEC GET /admin/api/recordings : HTTP $admin_api_code"
   fail=1
 fi
 
