@@ -110,8 +110,13 @@
       const ERROR_RETRY_MS = 6000;
       const STALL_LIMIT_MS = 100000;
       const STALL_RECOVER_ATTEMPTS = 4;
+      /** Secondes de tampon avant de lancer la lecture (fluidité vs latence). */
+      const BUFFER_TARGET_S = 12;
+      const SHORT_STALL_MS = 3000;
 
       let hls = null;
+      let playbackStarted = false;
+      let bufferCheckTimer = null;
       let retryTimer = null;
       let watchdog = null;
       let lastTime = -1;
@@ -128,7 +133,18 @@
         overlay.hidden = true;
       }
 
+      function bufferedAheadSeconds() {
+        const b = video.buffered;
+        if (!b.length) return 0;
+        const end = b.end(b.length - 1);
+        const cur = video.currentTime || 0;
+        return Math.max(0, end - cur);
+      }
+
       function stopPlayer() {
+        clearInterval(bufferCheckTimer);
+        bufferCheckTimer = null;
+        playbackStarted = false;
         clearInterval(watchdog);
         watchdog = null;
         if (hls) {
@@ -215,7 +231,30 @@
       function onPlaying() {
         hideOverlay();
         stallRecoveries = 0;
-        statusEl.textContent = "Direct en cours";
+        const ahead = bufferedAheadSeconds();
+        statusEl.textContent =
+          ahead >= 1
+            ? `Direct en cours (tampon ~${Math.round(ahead)} s — image fluide)`
+            : "Direct en cours";
+      }
+
+      function maybeStartPlayback() {
+        if (playbackStarted) return;
+        const ahead = bufferedAheadSeconds();
+        if (ahead < BUFFER_TARGET_S) {
+          showOverlay(
+            `Mise en mémoire tampon… ${Math.min(BUFFER_TARGET_S, Math.round(ahead))}/${BUFFER_TARGET_S} s`,
+            false,
+          );
+          return;
+        }
+        playbackStarted = true;
+        tryPlay();
+      }
+
+      function startBufferPolling() {
+        clearInterval(bufferCheckTimer);
+        bufferCheckTimer = setInterval(maybeStartPlayback, 400);
       }
 
       function recoverFromStall() {
@@ -232,11 +271,31 @@
 
       function startPlayer() {
         showOverlay("Chargement du direct…", false);
+        video.preload = "auto";
         video.onplaying = onPlaying;
+        video.addEventListener("waiting", () => {
+          if (!playbackStarted) return;
+          const stalledFor = Date.now() - lastProgress;
+          if (stalledFor < SHORT_STALL_MS) {
+            statusEl.textContent = "Rechargement du flux…";
+            recoverFromStall();
+          }
+        });
 
         if (window.Hls && Hls.isSupported()) {
-          hls = new Hls({ lowLatencyMode: true, backBufferLength: 30 });
-          hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+          hls = new Hls({
+            lowLatencyMode: false,
+            backBufferLength: 90,
+            maxBufferLength: 60,
+            maxMaxBufferLength: 120,
+            liveSyncDurationCount: 5,
+            liveMaxLatencyDurationCount: 12,
+          });
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            startBufferPolling();
+            maybeStartPlayback();
+          });
+          hls.on(Hls.Events.FRAG_BUFFERED, () => maybeStartPlayback());
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (!data.fatal) return;
             const code = data.response && data.response.code;
@@ -256,7 +315,10 @@
         } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
           video.src = HLS_URL;
           video.onerror = () => waitingForLive();
-          tryPlay();
+          statusEl.textContent =
+            "Safari : si la lecture saccade, essayez Chrome ou Firefox sur ordinateur.";
+          startBufferPolling();
+          video.addEventListener("progress", () => maybeStartPlayback());
         } else {
           showOverlay("Ce navigateur ne sait pas lire le direct (HLS).", true);
           return;

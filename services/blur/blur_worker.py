@@ -53,7 +53,7 @@ MAX_RAW_BACKLOG = int(os.environ.get("BLUR_MAX_RAW_BACKLOG", "3"))
 PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "120"))
 MIN_SEGMENT_BYTES = 2048
 # Marge entre segments : évite les DTS audio non monotones à la jonction.
-CHUNK_GAP_S = 0.1
+CHUNK_GAP_S = 0.0
 
 SEGMENT_GLOB = "seg_*.mkv"
 STOP = threading.Event()

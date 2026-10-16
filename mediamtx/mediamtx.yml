@@ -48,9 +48,9 @@ hlsAddress: :8888
 # ici (le flou ajoute déjà >= BLUR_CHUNK_SECONDS) et fait échouer certains iOS quand la
 # durée des parts varie. Pas de remux permanent : le flux brut `live` (jamais exposé par
 # Caddy) n'est donc pas remuxé pour rien ; `blurred` l'est dès la première requête.
-hlsAlwaysRemux: false
+hlsAlwaysRemux: true
 hlsVariant: mpegts
-hlsSegmentCount: 10
+hlsSegmentCount: 18
 hlsSegmentDuration: 2s
 hlsMuxerCloseAfter: 60s
 
