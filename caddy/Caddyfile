@@ -51,7 +51,7 @@
 			try_files {path} /index.html
 			file_server
 		}
-		@page_authorized expression `{http.request.uri.query.token} == "{$CAPTURE_TOKEN}"`
+		@page_authorized expression `{http.request.uri.query.token} == "{$CAPTURE_TOKEN}" || {http.request.cookie.capture_token} == "{$CAPTURE_TOKEN}"`
 		handle @page_authorized {
 			root * /srv/capture
 			uri strip_prefix /capture

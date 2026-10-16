@@ -28,8 +28,8 @@ webrtcAddress: :8889
 webrtcEncryption: false
 webrtcAllowOrigin: '*'
 webrtcLocalUDPAddress: :8189
-# En production derrière Caddy/Tailscale, définir l'IP ou le hostname Tailscale :
-# webrtcAdditionalHosts: ["100.x.x.x"]
+# ICE : hostname public vu par le navigateur (obligatoire hors LAN).
+webrtcAdditionalHosts: ["stream.iznac.com"]
 
 paths:
   live:
