@@ -4,6 +4,10 @@
   line-height: 1.4;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   padding: 0 1rem 2rem;
@@ -11,9 +15,34 @@ body {
   margin-inline: auto;
 }
 
-header h1 {
+h1 {
   font-size: 1.25rem;
   margin-bottom: 0.25rem;
+}
+
+.gate {
+  padding-top: 3rem;
+}
+
+.gate form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 400;
+}
+
+.error {
+  color: #e5484d;
+  font-size: 0.9rem;
+  min-height: 1.2em;
+  margin: 0.25rem 0;
 }
 
 .status {
@@ -21,16 +50,42 @@ header h1 {
   opacity: 0.85;
 }
 
-#preview {
-  width: 100%;
-  max-width: min(100%, 360px);
-  max-height: 70vh;
+/* Le cadre prend le ratio réel du flux (--ar = largeur / hauteur, fixé par capture.js). */
+.preview-frame {
+  --ar: 0.5625;
+  position: relative;
+  aspect-ratio: var(--ar);
+  width: min(100%, calc(70vh * var(--ar)));
   margin-inline: auto;
-  display: block;
   background: #111;
   border-radius: 8px;
-  aspect-ratio: 9 / 16;
-  object-fit: contain;
+  overflow: hidden;
+}
+
+.preview-frame canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  opacity: 0.7;
+}
+
+/* Source caméra : doit rester « visible » pour le navigateur mais ne rien afficher. */
+.source {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .panel {
@@ -41,24 +96,31 @@ label {
   display: block;
   font-weight: 600;
   font-size: 0.9rem;
+  margin-top: 0.75rem;
+}
+
+input[type="url"],
+input[type="password"],
+select {
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.6rem;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+
+input[type="checkbox"] {
+  width: 1.2rem;
+  height: 1.2rem;
 }
 
 input[type="url"] {
-  width: 100%;
-  margin-top: 0.35rem;
-  padding: 0.5rem;
   font-size: 0.85rem;
-  box-sizing: border-box;
 }
 
 input[type="url"][readonly] {
   opacity: 0.9;
   background: rgba(128, 128, 128, 0.12);
-}
-
-.hint {
-  font-size: 0.8rem;
-  opacity: 0.8;
 }
 
 .actions {
@@ -83,8 +145,14 @@ button:disabled {
   opacity: 0.5;
 }
 
-#btn-stop {
+#btn-stop,
+.secondary {
   background: #444;
+}
+
+.secondary {
+  width: 100%;
+  margin-top: 1rem;
 }
 
 .meta {
@@ -96,4 +164,9 @@ button:disabled {
 
 .meta dt {
   font-weight: 600;
+}
+
+.meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

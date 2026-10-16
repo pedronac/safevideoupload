@@ -3,10 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Direct marathon — HLS</title>
+    <meta name="robots" content="noindex" />
+    <title>Direct marathon</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
       body {
-        font-family: system-ui, sans-serif;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         margin: 0;
         background: #0f1115;
         color: #eee;
@@ -20,63 +24,221 @@
       h1 {
         font-size: 1.1rem;
         font-weight: 600;
+        margin: 0 0 0.75rem;
       }
-      video {
-        width: min(960px, 100%);
+      .player {
+        position: relative;
+        width: 100%;
+        max-width: 960px;
+        display: flex;
+        justify-content: center;
         background: #000;
         border-radius: 8px;
+        overflow: hidden;
+        min-height: 220px;
+      }
+      video {
+        display: block;
+        width: 100%;
+        max-height: 80vh;
+        background: #000;
+      }
+      #overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        text-align: center;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.78);
+        font-size: 1.05rem;
+      }
+      #overlay[hidden] {
+        display: none;
+      }
+      .spinner {
+        width: 28px;
+        height: 28px;
+        border: 3px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #7eb6ff;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      #overlay.error .spinner {
+        display: none;
+      }
+      #overlay.error #overlay-text {
+        color: #ffb4a8;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       #status {
         font-size: 0.85rem;
         opacity: 0.8;
-        margin-top: 0.5rem;
-      }
-      a {
-        color: #7eb6ff;
+        margin-top: 0.75rem;
+        min-height: 1.2em;
       }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+    <script src="hls.min.js"></script>
   </head>
   <body>
-    <h1>Flux public (visages floutés)</h1>
-    <video id="video" controls playsinline></video>
-    <p id="status">Chargement…</p>
-    <p>
-      <a href="/capture/">Page capture iPhone</a>
-    </p>
+    <h1>Direct marathon (visages floutés)</h1>
+    <div class="player">
+      <video id="video" controls playsinline></video>
+      <div id="overlay">
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="overlay-text" role="status">Chargement…</div>
+      </div>
+    </div>
+    <p id="status"></p>
+
     <script>
       const video = document.getElementById("video");
-      const status = document.getElementById("status");
-      const params = new URLSearchParams(location.search);
-      // Seul le manifeste HLS flouté est exposé publiquement (Caddy bloque /hls/live).
-      const hlsUrl =
-        params.get("src") ||
-        `${location.origin}/hls/blurred/index.m3u8`;
+      const overlay = document.getElementById("overlay");
+      const overlayText = document.getElementById("overlay-text");
+      const statusEl = document.getElementById("status");
 
-      function play() {
-        if (video.canPlayType("application/vnd.apple.mpegurl")) {
-          video.src = hlsUrl;
-          video.addEventListener("loadedmetadata", () => video.play().catch(() => {}));
-          status.textContent = "Lecture native HLS (Safari)";
-          return;
-        }
-        if (window.Hls && Hls.isSupported()) {
-          const hls = new Hls({ lowLatencyMode: true });
-          hls.loadSource(hlsUrl);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            status.textContent = "Lecture hls.js";
-            video.play().catch(() => {});
-          });
-          hls.on(Hls.Events.ERROR, (_, data) => {
-            if (data.fatal) status.textContent = `Erreur HLS : ${data.type}`;
-          });
-          return;
-        }
-        status.textContent = "HLS non supporté sur ce navigateur";
+      // Seul le manifeste HLS flouté est exposé publiquement (Caddy bloque /hls/live).
+      const HLS_URL = `${location.origin}/hls/blurred/index.m3u8`;
+      const WAIT_RETRY_MS = 4000;
+      const ERROR_RETRY_MS = 6000;
+      const STALL_LIMIT_MS = 25000;
+
+      let hls = null;
+      let retryTimer = null;
+      let watchdog = null;
+      let lastTime = -1;
+      let lastProgress = Date.now();
+
+      function showOverlay(text, isError) {
+        overlayText.textContent = text;
+        overlay.classList.toggle("error", Boolean(isError));
+        overlay.hidden = false;
       }
 
-      play();
+      function hideOverlay() {
+        overlay.hidden = true;
+      }
+
+      function stopPlayer() {
+        clearInterval(watchdog);
+        watchdog = null;
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+        video.onerror = null;
+        video.removeAttribute("src");
+        video.load();
+      }
+
+      function scheduleProbe(delayMs) {
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(probe, delayMs);
+      }
+
+      function waitingForLive() {
+        stopPlayer();
+        showOverlay("En attente du direct…", false);
+        statusEl.textContent = "Le direct n'a pas encore commencé. Cette page se met à jour toute seule.";
+        scheduleProbe(WAIT_RETRY_MS);
+      }
+
+      function realFailure(detail) {
+        stopPlayer();
+        showOverlay("Connexion au serveur impossible. Nouvelle tentative…", true);
+        statusEl.textContent = detail;
+        scheduleProbe(ERROR_RETRY_MS);
+      }
+
+      // 404 = aucun direct publié sur `blurred` (cas normal avant le départ ou après l'arrivée).
+      // Toute autre erreur HTTP / réseau est signalée comme un vrai problème.
+      async function probe() {
+        let response;
+        try {
+          response = await fetch(HLS_URL, { cache: "no-store" });
+        } catch (err) {
+          realFailure("Réseau indisponible ou serveur injoignable.");
+          return;
+        }
+        if (response.status === 404) {
+          waitingForLive();
+        } else if (response.ok) {
+          startPlayer();
+        } else {
+          realFailure(`Le serveur a répondu HTTP ${response.status}.`);
+        }
+      }
+
+      function tryPlay() {
+        video.play().catch(() => {
+          video.muted = true;
+          video.play().catch(() => {});
+          statusEl.textContent = "Lecture sans son : touchez le haut-parleur pour activer le son.";
+        });
+      }
+
+      function startWatchdog() {
+        lastTime = -1;
+        lastProgress = Date.now();
+        clearInterval(watchdog);
+        watchdog = setInterval(() => {
+          if (video.paused || video.ended) {
+            lastProgress = Date.now();
+            return;
+          }
+          if (video.currentTime !== lastTime) {
+            lastTime = video.currentTime;
+            lastProgress = Date.now();
+          } else if (Date.now() - lastProgress > STALL_LIMIT_MS) {
+            waitingForLive();
+          }
+        }, 5000);
+      }
+
+      function onPlaying() {
+        hideOverlay();
+        statusEl.textContent = "Direct en cours";
+      }
+
+      function startPlayer() {
+        showOverlay("Chargement du direct…", false);
+        video.onplaying = onPlaying;
+
+        if (window.Hls && Hls.isSupported()) {
+          hls = new Hls({ lowLatencyMode: true, backBufferLength: 30 });
+          hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+          hls.on(Hls.Events.ERROR, (_, data) => {
+            if (!data.fatal) return;
+            const code = data.response && data.response.code;
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              hls.recoverMediaError();
+            } else if (code === 404 || code === undefined || code === 0) {
+              waitingForLive();
+            } else {
+              realFailure(`Erreur de lecture (${data.details}, HTTP ${code}).`);
+            }
+          });
+          hls.loadSource(HLS_URL);
+          hls.attachMedia(video);
+        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+          video.src = HLS_URL;
+          video.onerror = () => waitingForLive();
+          tryPlay();
+        } else {
+          showOverlay("Ce navigateur ne sait pas lire le direct (HLS).", true);
+          return;
+        }
+        startWatchdog();
+      }
+
+      probe();
     </script>
   </body>
 </html>
