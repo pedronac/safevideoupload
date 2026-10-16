@@ -4,46 +4,89 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Capture marathon — safevideoupload</title>
+    <meta name="robots" content="noindex" />
+    <title>Capture marathon</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header>
-      <h1>Capture live</h1>
-      <p id="status" class="status">Prêt</p>
-    </header>
-
-    <main>
-      <video id="preview" playsinline muted autoplay></video>
-      <canvas id="overlay-canvas" width="720" height="1280" hidden></canvas>
-
-      <section class="panel">
-        <label>
-          URL WHIP (MediaMTX)
-          <input id="whip-url" type="url" spellcheck="false" />
+    <section id="gate" class="gate">
+      <h1>Capture marathon</h1>
+      <form id="gate-form" autocomplete="on">
+        <label for="gate-password">Mot de passe</label>
+        <input
+          id="gate-password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          autocapitalize="off"
+          spellcheck="false"
+          required
+        />
+        <label class="check">
+          <input id="gate-remember" type="checkbox" autocomplete="off" />
+          Se souvenir de ce téléphone
         </label>
-        <p class="hint">
-          Le secret d’accès n’est plus affiché dans l’URL WHIP (authentification
-          <code>Authorization: Bearer</code>). Ouvrez la page une fois avec
-          <code>?token=…</code> : le jeton est mémorisé (cookie) et retiré de la barre d’adresse.
-        </p>
+        <button id="gate-submit" type="submit">Déverrouiller</button>
+        <p id="gate-error" class="error" role="alert"></p>
+      </form>
+    </section>
 
-        <div class="actions">
-          <button id="btn-start" type="button">Démarrer diffusion</button>
-          <button id="btn-stop" type="button" disabled>Arrêter</button>
-          <button id="btn-backup" type="button" disabled>Télécharger sauvegarde</button>
+    <div id="app" hidden>
+      <header>
+        <h1>Capture live</h1>
+        <p id="status" class="status">Prêt</p>
+        <p id="framing" class="status"></p>
+      </header>
+
+      <main>
+        <div id="preview-frame" class="preview-frame">
+          <canvas id="overlay-canvas" width="720" height="1280"></canvas>
+          <p id="preview-placeholder" class="placeholder">Caméra arrêtée</p>
         </div>
+        <video id="camera" class="source" playsinline muted autoplay></video>
 
-        <dl class="meta">
-          <dt>GPS</dt>
-          <dd id="gps">—</dd>
-          <dt>Heure</dt>
-          <dd id="clock">—</dd>
-          <dt>Sauvegarde locale</dt>
-          <dd id="backup-size">0 Mo</dd>
-        </dl>
-      </section>
-    </main>
+        <section class="panel">
+          <label for="orientation">Orientation de l’image</label>
+          <select id="orientation">
+            <option value="auto" selected>Auto (suit le téléphone)</option>
+            <option value="portrait">Portrait (vertical)</option>
+            <option value="landscape">Paysage (horizontal)</option>
+          </select>
+
+          <label for="whip-url">Adresse du direct (WHIP)</label>
+          <input id="whip-url" type="url" spellcheck="false" readonly />
+
+          <div class="actions">
+            <button id="btn-start" type="button">Démarrer diffusion</button>
+            <button id="btn-stop" type="button" disabled>Arrêter</button>
+            <button id="btn-backup" type="button" disabled>Télécharger sauvegarde</button>
+          </div>
+
+          <p id="net-error" class="error" role="alert"></p>
+
+          <dl class="meta">
+            <dt>Connexion</dt>
+            <dd id="net-connection">—</dd>
+            <dt>ICE</dt>
+            <dd id="net-ice">—</dd>
+            <dt>Chemin réseau</dt>
+            <dd id="net-path">—</dd>
+            <dt>Envoi</dt>
+            <dd id="net-send">—</dd>
+            <dt>Serveur (candidats)</dt>
+            <dd id="net-candidates">—</dd>
+            <dt>GPS</dt>
+            <dd id="gps">—</dd>
+            <dt>Heure</dt>
+            <dd id="clock">—</dd>
+            <dt>Sauvegarde locale</dt>
+            <dd id="backup-size">0 Mo</dd>
+          </dl>
+
+          <button id="btn-lock" type="button" class="secondary">Verrouiller la page</button>
+        </section>
+      </main>
+    </div>
 
     <script src="capture.js" type="module"></script>
   </body>

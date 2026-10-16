@@ -87,13 +87,14 @@ prepare_env_and_storage() {
 
   if [[ ! -f .env ]]; then
     cp .env.example .env
-    log "Fichier .env créé depuis .env.example"
+    sed -i "s|^CAPTURE_TOKEN=.*|CAPTURE_TOKEN=$(openssl rand -hex 32)|" .env
+    log "Fichier .env créé depuis .env.example (CAPTURE_TOKEN généré : à lire dans .env)"
     echo ""
     echo "┌─────────────────────────────────────────────────────────────────┐"
     echo "│  À FAIRE avant production : éditer ${INSTALL_DIR}/.env          │"
     echo "│  • DOMAIN=stream.votredomaine.fr                                │"
     echo "│  • ACME_EMAIL=ops@votredomaine.fr                               │"
-    echo "│  • CAPTURE_TOKEN=\$(openssl rand -hex 32)                        │"
+    echo "│  • CAPTURE_TOKEN : déjà généré (mot de passe de la capture)     │"
     echo "│  Puis : cd ${INSTALL_DIR} && docker compose up -d               │"
     echo "└─────────────────────────────────────────────────────────────────┘"
     echo ""
@@ -117,7 +118,7 @@ print_firewall_reminder() {
 ── Pare-feu VPS (recommandé) ─────────────────────────────────────
 Exposer uniquement :
   • TCP 80, 443  — Caddy (HTTPS viewer, capture, WHIP, HLS)
-  • UDP 8189     — ICE WebRTC (Safari / iPhone)
+  • UDP 8189 ET TCP 8189 — ICE WebRTC (flux du téléphone ; TCP = repli)
 
 Exemple ufw (à adapter, décommenter si ufw est installé) :
 
@@ -127,13 +128,16 @@ Exemple ufw (à adapter, décommenter si ufw est installé) :
   # ufw allow 80/tcp
   # ufw allow 443/tcp
   # ufw allow 8189/udp
+  # ufw allow 8189/tcp
   # ufw enable
 
+Ouvrir aussi 8189 (udp + tcp) dans le pare-feu du fournisseur (panneau Ikoula).
 Ne pas publier RTSP (8554), RTMP (1935) ni l’API MediaMTX sur l’hôte public.
 
 ── Suite ─────────────────────────────────────────────────────────
 DNS : enregistrement A pour DOMAIN → IP publique du VPS.
-Capture iPhone : https://<DOMAIN>/capture/?token=<CAPTURE_TOKEN>
+Capture : https://<DOMAIN>/capture/ (saisir CAPTURE_TOKEN dans le formulaire, jamais dans l'URL)
+Diagnostic : ./scripts/diagnose-live.sh
 
 EOF
 }

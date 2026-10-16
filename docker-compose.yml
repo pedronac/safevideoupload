@@ -1,6 +1,7 @@
 # Ports exposés sur l’hôte (pare-feu VPS) :
-#   - 80, 443 : Caddy (HTTPS viewer, capture, WHIP, HLS flouté)
-#   - 8189/udp : ICE WebRTC MediaMTX (iPhone Safari si candidat host direct)
+#   - 80, 443 (TCP) : Caddy (HTTPS viewer, capture, WHIP, HLS flouté)
+#   - 8189 UDP + TCP : ICE WebRTC MediaMTX (le flux du téléphone arrive ici ;
+#     TCP = repli quand l'opérateur / le pare-feu bloque l'UDP)
 # Tout le reste (RTSP, RTMP, API, HLS interne) reste sur le réseau Docker.
 
 services:
@@ -14,6 +15,8 @@ services:
       - ./storage/blurred:/storage/blurred
     ports:
       - "8189:8189/udp"
+      - "8189:8189/tcp"
+    # Image MediaMTX (scratch) : pas de wget/shell — healthcheck CMD échoue toujours.
     healthcheck:
       disable: true
 
@@ -32,10 +35,8 @@ services:
       BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-30}
       BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-640x360}
       BLURRED_DIR: /storage/blurred/chunks
-      RAW_MIRROR_DIR: /storage/blurred/rtmp_mirror
     volumes:
       - ./storage/blurred:/storage/blurred
-      - ./storage/raw:/storage/raw:ro
     command: ["python", "-u", "/app/blur_worker.py"]
 
   caddy:
@@ -50,7 +51,7 @@ services:
     environment:
       DOMAIN: ${DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-internal@localhost}
-      CAPTURE_TOKEN: ${CAPTURE_TOKEN:-}
+      CAPTURE_TOKEN: ${CAPTURE_TOKEN:?CAPTURE_TOKEN requis (openssl rand -hex 32)}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web/viewer:/srv/viewer:ro

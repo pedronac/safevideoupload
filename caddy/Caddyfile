@@ -2,6 +2,15 @@
 	email {$ACME_EMAIL}
 }
 
+# En-têtes de sécurité communs ; caméra, micro et géolocalisation limités à ce site.
+(common_headers) {
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Permissions-Policy "camera=(self), microphone=(self), geolocation=(self)"
+	}
+}
+
 # Bloc commun : HLS public uniquement sur le chemin flouté (pas de brut /live).
 (hls_blurred_only) {
 	handle /hls/live/* {
@@ -16,88 +25,79 @@
 	}
 }
 
-# WHIP /live : Bearer ou ?token= si CAPTURE_TOKEN est défini.
+# WHIP /live/* : uniquement Authorization: Bearer <CAPTURE_TOKEN>.
+# Fail closed : si CAPTURE_TOKEN est vide, tout est refusé.
 (whip_auth) {
 	handle /live/* {
-		@open expression `"{$CAPTURE_TOKEN}" == ""`
-		handle @open {
-			reverse_proxy mediamtx:8889
-		}
-		@authorized {
-			expression `{http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}" || {http.request.uri.query.token} == "{$CAPTURE_TOKEN}"`
-		}
+		@authorized expression `"{$CAPTURE_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}"`
 		handle @authorized {
 			reverse_proxy mediamtx:8889
 		}
-		respond "Token capture requis (Authorization: Bearer ou ?token=)" 401
+		handle {
+			header Cache-Control "no-store"
+			respond "Authentification requise" 401
+		}
 	}
 }
 
-# Page capture : optionnellement protégée par ?token= (assets statiques laissés ouverts).
+# Vérification du mot de passe de la page capture (le secret ne passe jamais dans l'URL).
+# 204 si le Bearer correspond, 401 sinon (y compris si CAPTURE_TOKEN est vide).
+(capture_auth) {
+	handle /capture-auth {
+		header Cache-Control "no-store"
+		@authorized expression `"{$CAPTURE_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}"`
+		handle @authorized {
+			respond 204
+		}
+		handle {
+			respond "Mot de passe invalide" 401
+		}
+	}
+}
+
+# Page capture : fichiers statiques publics (l'interface est verrouillée côté JS,
+# la vraie protection est /live/* et /capture-auth).
 (capture_pages) {
-	@capture_static {
-		path /capture/*.js /capture/*.css
-	}
-	handle @capture_static {
+	redir /capture /capture/ 308
+	handle_path /capture/* {
+		header Cache-Control "no-cache"
 		root * /srv/capture
-		uri strip_prefix /capture
 		file_server
-	}
-	handle /capture* {
-		@open expression `"{$CAPTURE_TOKEN}" == ""`
-		handle @open {
-			root * /srv/capture
-			uri strip_prefix /capture
-			try_files {path} /index.html
-			file_server
-		}
-		@page_authorized expression `{http.request.uri.query.token} == "{$CAPTURE_TOKEN}" || {http.request.cookie.capture_token} == "{$CAPTURE_TOKEN}"`
-		handle @page_authorized {
-			root * /srv/capture
-			uri strip_prefix /capture
-			try_files {path} /index.html
-			file_server
-		}
-		respond "Ajoutez ?token=<CAPTURE_TOKEN> à l’URL capture" 401
 	}
 }
 
-# Développement local : HTTP sur le port 80
-:80 {
-	import hls_blurred_only
-	import whip_auth
-	import capture_pages
-
-	redir /viewer /viewer/ permanent
-
+(viewer_pages) {
+	redir /viewer /viewer/ 308
 	handle /viewer* {
+		header Cache-Control "no-cache"
 		uri strip_prefix /viewer
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
 	}
-
 	handle / {
-		redir /viewer/ permanent
+		redir * /viewer/ 302
 	}
 }
 
-# Production : TLS automatique (Let's Encrypt) quand DOMAIN != localhost
+# Développement local uniquement : HTTP sur http://localhost (Host: localhost).
+# Volontairement limité à "localhost" : en production, l'IP nue du VPS ne sert
+# rien en clair (le jeton ne doit jamais circuler en HTTP).
+http://localhost {
+	import common_headers
+	import hls_blurred_only
+	import whip_auth
+	import capture_auth
+	import capture_pages
+	import viewer_pages
+}
+
+# Production : TLS automatique (Let's Encrypt)
 {$DOMAIN} {
+	import common_headers
 	import hls_blurred_only
 	import whip_auth
+	import capture_auth
 	import capture_pages
-
-	redir /viewer /viewer/ permanent
-
-	handle /viewer* {
-		uri strip_prefix /viewer
-		root * /srv/viewer
-		try_files {path} /index.html
-		file_server
-	}
-
-	handle / {
-		redir /viewer/ permanent
-	}
+	import viewer_pages
 }
