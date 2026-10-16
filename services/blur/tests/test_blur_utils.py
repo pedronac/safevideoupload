@@ -8,7 +8,15 @@ import cv2
 import numpy as np
 import pytest
 
-from blur_utils import has_video_stream, run_deface_on_file
+from blur_utils import configure_inference_threads, has_video_stream, run_deface_on_file
+
+
+def test_configure_inference_threads_reads_env(monkeypatch):
+    monkeypatch.setenv("OMP_NUM_THREADS", "2")
+    monkeypatch.setenv("ONNXRUNTIME_INTRA_OP_NUM_THREADS", "2")
+    applied = configure_inference_threads()
+    assert applied["OMP_NUM_THREADS"] == "2"
+    assert applied["ONNXRUNTIME_INTRA_OP_NUM_THREADS"] == "2"
 
 
 def test_deface_module_importable():

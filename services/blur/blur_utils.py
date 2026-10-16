@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
+
+
+def configure_inference_threads() -> dict[str, str]:
+    """Applique les limites de threads ONNX/OpenMP depuis l'environnement (une fois au démarrage).
+
+    Les variables sont déjà lues par onnxruntime / OpenMP dans les processus enfants ;
+    on les fixe explicitement ici pour que deface hérite des mêmes valeurs.
+    """
+    applied: dict[str, str] = {}
+    for key in (
+        "OMP_NUM_THREADS",
+        "ONNXRUNTIME_INTRA_OP_NUM_THREADS",
+        "ONNXRUNTIME_INTER_OP_NUM_THREADS",
+    ):
+        val = os.environ.get(key, "").strip()
+        if val:
+            os.environ[key] = val
+            applied[key] = val
+    return applied
 
 # Image clé toutes les ~1 s : segments HLS courts et exigence YouTube (<= 4 s).
 DEFACE_FFMPEG_CONFIG = {

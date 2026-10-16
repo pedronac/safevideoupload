@@ -35,6 +35,12 @@ services:
       BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-6}
       BLUR_PUSH_IDLE_CLOSE_S: ${BLUR_PUSH_IDLE_CLOSE_S:-120}
       BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-640x360}
+      # Workers de floutage en parallèle (1 segment brut = 1 worker ; surveiller le CPU sur 4 cœurs).
+      BLUR_PROCESSOR_WORKERS: ${BLUR_PROCESSOR_WORKERS:-1}
+      # Limites de threads pour deface/ONNX (laisser vide = défaut runtime).
+      OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}
+      ONNXRUNTIME_INTRA_OP_NUM_THREADS: ${ONNXRUNTIME_INTRA_OP_NUM_THREADS:-}
+      ONNXRUNTIME_INTER_OP_NUM_THREADS: ${ONNXRUNTIME_INTER_OP_NUM_THREADS:-}
       BLURRED_DIR: /storage/blurred/chunks
     volumes:
       - ./storage/blurred:/storage/blurred

@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from blur_utils import blur_segment
+from blur_utils import blur_segment, configure_inference_threads
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +50,7 @@ BLURRED_DIR = Path(os.environ.get("BLURRED_DIR", "/storage/blurred/chunks"))
 WORK_DIR = Path(os.environ.get("BLUR_WORK_DIR", "/tmp/blur_work"))
 MAX_PUSH_BACKLOG = int(os.environ.get("BLUR_MAX_PUSH_BACKLOG", "4"))
 MAX_RAW_BACKLOG = int(os.environ.get("BLUR_MAX_RAW_BACKLOG", "3"))
+PROCESSOR_WORKERS = max(1, int(os.environ.get("BLUR_PROCESSOR_WORKERS", "1")))
 PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "120"))
 MIN_SEGMENT_BYTES = 2048
 # Marge entre segments RTMP (0 = enchaînement immédiat ; augmenter seulement si DTS non monotones).
@@ -57,6 +58,15 @@ CHUNK_GAP_S = float(os.environ.get("BLUR_CHUNK_GAP_S", "0"))
 
 SEGMENT_GLOB = "seg_*.mkv"
 STOP = threading.Event()
+_segment_index_lock = threading.Lock()
+_segment_index = 0
+
+
+def next_segment_index() -> int:
+    global _segment_index
+    with _segment_index_lock:
+        _segment_index += 1
+        return _segment_index
 
 
 @dataclass
@@ -186,7 +196,6 @@ def segmenter_loop(raw_queue: "queue.Queue[Path]") -> None:
 
 
 def processor_loop(raw_queue: "queue.Queue[Path]", push_queue: "queue.Queue[PushItem]") -> None:
-    index = 0
     while not STOP.is_set():
         try:
             raw = raw_queue.get(timeout=1)
@@ -197,7 +206,7 @@ def processor_loop(raw_queue: "queue.Queue[Path]", push_queue: "queue.Queue[Push
         for old in trim_backlog(raw_queue, MAX_RAW_BACKLOG):
             log.warning("Retard de floutage : segment %s abandonné (brut conservé par MediaMTX)", old.name)
             old.unlink(missing_ok=True)
-        index += 1
+        index = next_segment_index()
         blurred = BLURRED_DIR / f"blurred_{time.strftime('%Y%m%d_%H%M%S')}_{index:05d}.mp4"
         started = time.monotonic()
         try:
@@ -369,24 +378,35 @@ def main() -> None:
     shutil.rmtree(WORK_DIR, ignore_errors=True)
     WORK_DIR.mkdir(parents=True, exist_ok=True)
 
+    thread_cfg = configure_inference_threads()
     log.info(
-        "Démarrage (chunk=%ss, scale=%s, rtsp=%s, rtmp=%s, youtube=%s)",
+        "Démarrage (chunk=%ss, scale=%s, workers=%s, rtsp=%s, rtmp=%s, youtube=%s%s)",
         CHUNK_SECONDS,
         SCALE,
+        PROCESSOR_WORKERS,
         RTSP_URL,
         RTMP_MTX,
         "oui" if YOUTUBE_RTMP else "non",
+        f", threads={thread_cfg}" if thread_cfg else "",
     )
 
     raw_queue: "queue.Queue[Path]" = queue.Queue()
     push_queue: "queue.Queue[PushItem]" = queue.Queue()
     threads = [
         threading.Thread(target=segmenter_loop, args=(raw_queue,), name="segmenter", daemon=True),
-        threading.Thread(
-            target=processor_loop, args=(raw_queue, push_queue), name="processor", daemon=True
-        ),
-        threading.Thread(target=pusher_loop, args=(push_queue,), name="pusher", daemon=True),
     ]
+    for worker_id in range(PROCESSOR_WORKERS):
+        threads.append(
+            threading.Thread(
+                target=processor_loop,
+                args=(raw_queue, push_queue),
+                name=f"processor-{worker_id}",
+                daemon=True,
+            )
+        )
+    threads.append(
+        threading.Thread(target=pusher_loop, args=(push_queue,), name="pusher", daemon=True)
+    )
     for t in threads:
         t.start()
 
