@@ -10,6 +10,7 @@ from pathlib import Path
 # Image clé toutes les ~1 s : segments HLS courts et exigence YouTube (<= 4 s).
 DEFACE_FFMPEG_CONFIG = {
     "codec": "libx264",
+    "macro_block_size": 1,
     "output_params": ["-g", "30", "-preset", "veryfast"],
 }
 
@@ -32,6 +33,44 @@ def oriented_scale(scale: str, width: int, height: int) -> str:
     if height > width:
         return f"{short_side}x{long_side}"
     return f"{long_side}x{short_side}"
+
+
+TARGET_FPS = 30
+
+
+def normalize_to_cfr(raw_path: Path, output_path: Path, fps: int = TARGET_FPS) -> None:
+    """Réencode la vidéo d'un segment WebRTC en cadence constante (sans audio).
+
+    Les segments issus du WebRTC sont à cadence variable et ffmpeg y annonce
+    1000 i/s (30000 i/s moyens) : deface en déduirait une sortie absurde, très lente.
+    """
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-loglevel",
+        "error",
+        "-i",
+        str(raw_path),
+        "-map",
+        "0:v:0",
+        "-an",
+        "-vf",
+        f"fps={fps}",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "18",
+        "-g",
+        str(fps),
+        "-pix_fmt",
+        "yuv420p",
+        str(output_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"normalisation cadence : {proc.stderr.strip()}")
 
 
 def run_deface_on_file(
@@ -123,9 +162,11 @@ def blur_segment(
         raise RuntimeError(f"segment illisible : {raw_path}")
 
     video_only = output_path.with_suffix(".video.mp4")
+    normalized = output_path.with_suffix(".cfr.mp4")
     try:
+        normalize_to_cfr(raw_path, normalized)
         run_deface_on_file(
-            raw_path,
+            normalized,
             video_only,
             scale=oriented_scale(scale, info["width"], info["height"]),
             replacewith=replacewith,
@@ -141,6 +182,7 @@ def blur_segment(
             raise RuntimeError(f"assemblage audio/vidéo : {proc.stderr.strip()}")
     finally:
         video_only.unlink(missing_ok=True)
+        normalized.unlink(missing_ok=True)
     return info
 
 

@@ -49,6 +49,7 @@ SCALE = os.environ.get("BLUR_PROCESS_SCALE", "640x360")
 BLURRED_DIR = Path(os.environ.get("BLURRED_DIR", "/storage/blurred/chunks"))
 WORK_DIR = Path(os.environ.get("BLUR_WORK_DIR", "/tmp/blur_work"))
 MAX_PUSH_BACKLOG = int(os.environ.get("BLUR_MAX_PUSH_BACKLOG", "4"))
+MAX_RAW_BACKLOG = int(os.environ.get("BLUR_MAX_RAW_BACKLOG", "3"))
 PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "20"))
 MIN_SEGMENT_BYTES = 2048
 # Marge entre segments : évite les DTS audio non monotones à la jonction.
@@ -77,6 +78,17 @@ def completed_segments(segments: list[Path], process_exited: bool) -> list[Path]
     if process_exited:
         return list(segments)
     return list(segments[:-1])
+
+
+def trim_backlog(q: "queue.Queue", limit: int) -> list:
+    """Retire les plus anciens éléments tant que la file dépasse `limit` (retourne les retirés)."""
+    dropped = []
+    while q.qsize() > limit:
+        try:
+            dropped.append(q.get_nowait())
+        except queue.Empty:
+            break
+    return dropped
 
 
 def rtsp_readable(url: str) -> bool:
@@ -180,6 +192,11 @@ def processor_loop(raw_queue: "queue.Queue[Path]", push_queue: "queue.Queue[Push
             raw = raw_queue.get(timeout=1)
         except queue.Empty:
             continue
+        # Floutage plus lent que le temps réel : on abandonne les plus vieux segments
+        # (jamais diffusés bruts) plutôt que de laisser le retard et le disque exploser.
+        for old in trim_backlog(raw_queue, MAX_RAW_BACKLOG):
+            log.warning("Retard de floutage : segment %s abandonné (brut conservé par MediaMTX)", old.name)
+            old.unlink(missing_ok=True)
         index += 1
         blurred = BLURRED_DIR / f"blurred_{time.strftime('%Y%m%d_%H%M%S')}_{index:05d}.mp4"
         started = time.monotonic()
@@ -329,11 +346,7 @@ def pusher_loop(push_queue: "queue.Queue[PushItem]") -> None:
                 ts_offset = 0.0
             continue
 
-        while push_queue.qsize() >= MAX_PUSH_BACKLOG:
-            try:
-                skipped = push_queue.get_nowait()
-            except queue.Empty:
-                break
+        for skipped in trim_backlog(push_queue, MAX_PUSH_BACKLOG - 1):
             log.warning("Retard direct : segment %s sauté pour le push", skipped.path.name)
 
         for pusher in pushers:
