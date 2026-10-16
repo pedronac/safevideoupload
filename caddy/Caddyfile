@@ -39,18 +39,21 @@
 		path /capture/*.js /capture/*.css
 	}
 	handle @capture_static {
+		uri strip_prefix /capture
 		root * /srv/capture
 		file_server
 	}
 	handle /capture* {
 		@open expression `"{$CAPTURE_TOKEN}" == ""`
 		handle @open {
+			uri strip_prefix /capture
 			root * /srv/capture
 			try_files {path} /index.html
 			file_server
 		}
 		@page_authorized expression `{http.request.uri.query.token} == "{$CAPTURE_TOKEN}"`
 		handle @page_authorized {
+			uri strip_prefix /capture
 			root * /srv/capture
 			try_files {path} /index.html
 			file_server
@@ -65,7 +68,10 @@
 	import whip_auth
 	import capture_pages
 
-	handle /viewer* {
+	handle /viewer {
+		redir /viewer/ permanent
+	}
+	handle_path /viewer/* {
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
@@ -88,7 +94,10 @@
 	import whip_auth
 	import capture_pages
 
-	handle /viewer* {
+	handle /viewer {
+		redir /viewer/ permanent
+	}
+	handle_path /viewer/* {
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
