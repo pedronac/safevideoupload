@@ -3,6 +3,31 @@
 logLevel: info
 logDestinations: [stdout]
 
+# Auth interne MediaMTX (reprend les défauts v1.9.3) : publish/read ouverts, car
+# la protection est faite en amont par Caddy (Bearer sur /live/*). MediaMTX n'est
+# joignable que sur le réseau Docker (seuls 8189 tcp/udp sont publiés).
+# En plus du défaut (API depuis localhost), l'API/metrics sont autorisées depuis le
+# réseau Docker (172.16.0.0/12) pour les diagnostics : scripts/diagnose-live.sh.
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1', '172.16.0.0/12']
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
 api: true
 apiAddress: :9997
 
@@ -11,6 +36,8 @@ metricsAddress: :9998
 
 rtmp: true
 rtmpAddress: :1935
+
+srt: false
 
 rtsp: true
 rtspAddress: :8554
@@ -28,8 +55,19 @@ webrtcAddress: :8889
 webrtcEncryption: false
 webrtcAllowOrigin: '*'
 webrtcLocalUDPAddress: :8189
-# ICE : hostname public vu par le navigateur (obligatoire hors LAN).
-webrtcAdditionalHosts: ["stream.iznac.com"]
+# Repli ICE-TCP (même numéro de port) : réseaux mobiles / pare-feu qui bloquent l'UDP.
+webrtcLocalTCPAddress: :8189
+# Derrière le pont Docker, l'IP de l'interface (172.x) est inutilisable par le téléphone :
+# on n'annonce que les adresses publiques ci-dessous. Pour un test en LAN sans domaine,
+# passer à `yes` (ou ajouter l'IP du LAN dans webrtcAdditionalHosts).
+webrtcIPsFromInterfaces: no
+# Adresses annoncées au navigateur (candidats ICE) : nom de domaine ET IP publique du
+# VPS (au cas où le DNS passe par un proxy, ex. Cloudflare orange, ou change).
+webrtcAdditionalHosts: ["stream.iznac.com", "178.170.26.216"]
+# STUN côté serveur : découvre aussi l'IP publique (candidat srflx) en secours.
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+webrtcHandshakeTimeout: 20s
 
 paths:
   live:
