@@ -46,8 +46,7 @@ hls: true
 hlsAddress: :8888
 # MPEG-TS : compatibilité maximale (iPhone Safari natif, hls.js). Le LL-HLS ne sert à rien
 # ici (le flou ajoute déjà >= BLUR_CHUNK_SECONDS) et fait échouer certains iOS quand la
-# durée des parts varie. Pas de remux permanent : le flux brut `live` (jamais exposé par
-# Caddy) n'est donc pas remuxé pour rien ; `blurred` l'est dès la première requête.
+# durée des parts varie. Remux HLS permanent : seul `blurred` est exposé par Caddy (pas `live`).
 hlsAlwaysRemux: true
 hlsVariant: mpegts
 hlsSegmentCount: 18

@@ -220,7 +220,7 @@
               stallRecoveries += 1;
               statusEl.textContent =
                 "Pause du flux (traitement du segment) — reprise automatique…";
-              recoverFromStall();
+              recoverFromStall(true);
             } else {
               waitingForLive();
             }
@@ -257,10 +257,14 @@
         bufferCheckTimer = setInterval(maybeStartPlayback, 400);
       }
 
-      function recoverFromStall() {
+      function recoverFromStall(reloadManifest) {
         if (hls) {
           try {
-            hls.startLoad(-1);
+            if (reloadManifest) {
+              hls.loadSource(HLS_URL);
+            } else {
+              hls.startLoad(-1);
+            }
           } catch {
             /* ignore */
           }
@@ -269,18 +273,22 @@
         lastProgress = Date.now();
       }
 
+      function onRebuffering() {
+        if (!playbackStarted) return;
+        showOverlay("Mise en mémoire tampon…", false);
+        const stalledFor = Date.now() - lastProgress;
+        if (stalledFor < SHORT_STALL_MS) {
+          statusEl.textContent = "Courte pause du flux — reprise automatique…";
+          recoverFromStall(false);
+        }
+      }
+
       function startPlayer() {
         showOverlay("Chargement du direct…", false);
         video.preload = "auto";
         video.onplaying = onPlaying;
-        video.addEventListener("waiting", () => {
-          if (!playbackStarted) return;
-          const stalledFor = Date.now() - lastProgress;
-          if (stalledFor < SHORT_STALL_MS) {
-            statusEl.textContent = "Rechargement du flux…";
-            recoverFromStall();
-          }
-        });
+        video.addEventListener("waiting", onRebuffering);
+        video.addEventListener("stalled", onRebuffering);
 
         if (window.Hls && Hls.isSupported()) {
           hls = new Hls({
@@ -303,9 +311,11 @@
               hls.recoverMediaError();
             } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR && stallRecoveries < STALL_RECOVER_ATTEMPTS) {
               stallRecoveries += 1;
-              recoverFromStall();
-            } else if (code === 404 || code === undefined || code === 0) {
+              recoverFromStall(false);
+            } else if (code === 404) {
               waitingForLive();
+            } else if (code === undefined || code === 0) {
+              recoverFromStall(false);
             } else {
               realFailure(`Erreur de lecture (${data.details}, HTTP ${code}).`);
             }

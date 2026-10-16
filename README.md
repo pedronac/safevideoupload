@@ -82,6 +82,12 @@ La latence du direct public vaut environ `BLUR_CHUNK_SECONDS` (**6 s** par défa
 (compromis CPU : segments plus courts = moins de retard mais plus de charge). Le premier segment flouté
 apparaît en pratique ~10–20 s après le début du direct selon le CPU.
 
+**Fluidité vs latence (viewer)** : la page `/viewer/` privilégie une lecture **fluide** (tampon ~10 s,
+hls.js en mode live classique, ~8–12 s derrière le bord HLS) plutôt que la latence minimale. Les segments
+floutés arrivent par paquets (~6 s) : sans ce tampon, la lecture « au bord » du direct saccade à chaque
+trou entre segments. Pour suivre le direct au plus près, il faudrait réduire `BLUR_CHUNK_SECONDS` et
+accepter plus de saccades — ou augmenter le tampon et accepter plus de retard.
+
 ## Le worker de floutage
 
 Trois étapes en parallèle (`services/blur/blur_worker.py`) :

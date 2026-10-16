@@ -52,8 +52,8 @@ MAX_PUSH_BACKLOG = int(os.environ.get("BLUR_MAX_PUSH_BACKLOG", "4"))
 MAX_RAW_BACKLOG = int(os.environ.get("BLUR_MAX_RAW_BACKLOG", "3"))
 PUSH_IDLE_CLOSE_S = float(os.environ.get("BLUR_PUSH_IDLE_CLOSE_S", "120"))
 MIN_SEGMENT_BYTES = 2048
-# Marge entre segments : évite les DTS audio non monotones à la jonction.
-CHUNK_GAP_S = 0.0
+# Marge entre segments RTMP (0 = enchaînement immédiat ; augmenter seulement si DTS non monotones).
+CHUNK_GAP_S = float(os.environ.get("BLUR_CHUNK_GAP_S", "0"))
 
 SEGMENT_GLOB = "seg_*.mkv"
 STOP = threading.Event()
@@ -337,8 +337,9 @@ def pusher_loop(push_queue: "queue.Queue[PushItem]") -> None:
         try:
             item = push_queue.get(timeout=1)
         except queue.Empty:
-            # Plus de segment : on ferme les connexions RTMP pour que `blurred`
-            # repasse hors ligne (le viewer affiche alors "En attente du direct").
+            # Plus de segment prêt à pousser : on garde RTMP ouvert tant que le processeur
+            # peut encore alimenter la file (évite un trou HLS entre deux chunks de ~6 s).
+            # On ferme seulement après une longue inactivité (fin de direct).
             if connected and time.monotonic() - last_end > PUSH_IDLE_CLOSE_S:
                 for pusher in pushers:
                     pusher.stop()
