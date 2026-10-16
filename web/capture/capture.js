@@ -476,7 +476,7 @@ function parseServerCandidates(sdp) {
     const m = line.match(/^a=candidate:\S+ \d+ (\w+) \d+ (\S+) (\d+) typ (\w+)/i);
     if (m) found.push(`${m[1].toLowerCase()} ${m[2]}:${m[3]} (${m[4]})`);
   }
-  return found;
+  return [...new Set(found)];
 }
 
 class AuthRejectedError extends Error {}
@@ -521,9 +521,15 @@ async function applyVideoBitrate(pc) {
   if (!params.encodings?.length) params.encodings = [{}];
   params.encodings[0].maxBitrate = VIDEO_BITRATE;
   try {
-    await sender.setParameters(params);
-  } catch (err) {
-    console.debug("[capture] setParameters", err);
+    // Résolution constante (on réduit plutôt la cadence) : flou et HLS supportent mal
+    // les changements de taille en cours de direct.
+    await sender.setParameters({ ...params, degradationPreference: "maintain-resolution" });
+  } catch {
+    try {
+      await sender.setParameters(params);
+    } catch (err) {
+      console.debug("[capture] setParameters", err);
+    }
   }
 }
 

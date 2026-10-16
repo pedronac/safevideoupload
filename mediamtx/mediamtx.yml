@@ -44,11 +44,15 @@ rtspAddress: :8554
 
 hls: true
 hlsAddress: :8888
-hlsAlwaysRemux: true
-hlsVariant: lowLatency
-hlsSegmentCount: 7
-hlsSegmentDuration: 1s
-hlsPartDuration: 200ms
+# MPEG-TS : compatibilité maximale (iPhone Safari natif, hls.js). Le LL-HLS ne sert à rien
+# ici (le flou ajoute déjà >= BLUR_CHUNK_SECONDS) et fait échouer certains iOS quand la
+# durée des parts varie. Pas de remux permanent : le flux brut `live` (jamais exposé par
+# Caddy) n'est donc pas remuxé pour rien ; `blurred` l'est dès la première requête.
+hlsAlwaysRemux: false
+hlsVariant: mpegts
+hlsSegmentCount: 10
+hlsSegmentDuration: 2s
+hlsMuxerCloseAfter: 60s
 
 webrtc: true
 webrtcAddress: :8889
