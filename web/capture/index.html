@@ -20,12 +20,13 @@
       <section class="panel">
         <label>
           URL WHIP (MediaMTX)
-          <input id="whip-url" type="url" spellcheck="false" />
+          <input id="whip-url" type="url" spellcheck="false" readonly />
         </label>
         <p class="hint">
-          Le secret d’accès n’est plus affiché dans l’URL WHIP (authentification
-          <code>Authorization: Bearer</code>). Ouvrez la page une fois avec
-          <code>?token=…</code> : le jeton est mémorisé (cookie) et retiré de la barre d’adresse.
+          Ouvrez la page une fois avec <code>?token=…</code> (usage unique dans l’URL) : le
+          jeton est mémorisé (session + cookie) puis retiré de la barre d’adresse. WHIP
+          s’authentifie via <code>Authorization: Bearer</code>, sans jeton dans l’URL WHIP.
+          Safari iOS exige HTTPS hors localhost.
         </p>
 
         <div class="actions">

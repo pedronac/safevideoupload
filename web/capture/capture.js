@@ -20,42 +20,60 @@ const OUT_HEIGHT = 1280;
 const TARGET_FPS = 30;
 const VIDEO_BITRATE = 3_000_000;
 const RECORDER_TIMESLICE_MS = 60_000;
-const CAPTURE_COOKIE = "capture_token";
+const CAPTURE_TOKEN_SESSION_KEY = "captureToken";
+const CAPTURE_TOKEN_COOKIE = "capture_token";
 
-const params = new URLSearchParams(window.location.search);
+function readCaptureTokenCookie() {
+  const prefix = `${CAPTURE_TOKEN_COOKIE}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      try {
+        return decodeURIComponent(trimmed.slice(prefix.length));
+      } catch {
+        return trimmed.slice(prefix.length);
+      }
+    }
+  }
+  return "";
+}
 
 function persistCaptureToken(token) {
   if (!token) return;
-  sessionStorage.setItem("captureToken", token);
-  document.cookie = `${CAPTURE_COOKIE}=${encodeURIComponent(token)}; Path=/capture; Max-Age=86400; Secure; SameSite=Strict`;
+  sessionStorage.setItem(CAPTURE_TOKEN_SESSION_KEY, token);
+  document.cookie = `${CAPTURE_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/capture; Max-Age=86400; Secure; SameSite=Strict`;
 }
 
 function bootstrapAuthFromUrl() {
+  const params = new URLSearchParams(window.location.search);
   const fromQuery = params.get("token");
   if (fromQuery) {
     persistCaptureToken(fromQuery);
-    params.delete("token");
-    const clean = params.toString()
-      ? `${location.pathname}?${params}`
-      : location.pathname;
-    history.replaceState({}, "", clean);
+    const path = window.location.pathname.replace(/\/?$/, "/");
+    history.replaceState(null, "", path);
   }
 }
 
 bootstrapAuthFromUrl();
 
 function getCaptureToken() {
-  return sessionStorage.getItem("captureToken") || "";
+  const fromSession = sessionStorage.getItem(CAPTURE_TOKEN_SESSION_KEY);
+  if (fromSession) return fromSession;
+  const fromCookie = readCaptureTokenCookie();
+  if (fromCookie) {
+    sessionStorage.setItem(CAPTURE_TOKEN_SESSION_KEY, fromCookie);
+    return fromCookie;
+  }
+  return "";
 }
 
 function defaultWhipUrl() {
+  const params = new URLSearchParams(window.location.search);
   if (params.get("whip")) return params.get("whip");
-  const { protocol, hostname, port } = window.location;
-  const base = `${protocol}//${hostname}/live/whip`;
-  if (port === "80" || port === "443" || port === "") {
-    return base;
-  }
-  return base;
+  const saved = localStorage.getItem("whipUrl");
+  if (saved) return saved.replace(/\?token=[^&]*(&|$)/, "").replace(/\?$/, "");
+  const { protocol, hostname } = window.location;
+  return `${protocol}//${hostname}/live/whip`;
 }
 
 whipInput.value = defaultWhipUrl();
@@ -75,7 +93,7 @@ function setStatus(msg) {
 }
 
 function formatBytes(n) {
-  return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
+  return `${(n / (1024 * (1024))).toFixed(1)} Mo`;
 }
 
 function updateBackupSize() {
@@ -86,17 +104,18 @@ function updateBackupSize() {
 function drawOverlayFrame(videoEl) {
   const vw = videoEl.videoWidth;
   const vh = videoEl.videoHeight;
-  if (!vw || !vh) return;
 
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, OUT_WIDTH, OUT_HEIGHT);
 
-  const scale = Math.min(OUT_WIDTH / vw, OUT_HEIGHT / vh);
-  const dw = vw * scale;
-  const dh = vh * scale;
-  const dx = (OUT_WIDTH - dw) / 2;
-  const dy = (OUT_HEIGHT - dh) / 2;
-  ctx.drawImage(videoEl, dx, dy, dw, dh);
+  if (vw > 0 && vh > 0) {
+    const scale = Math.min(OUT_WIDTH / vw, OUT_HEIGHT / vh);
+    const dw = vw * scale;
+    const dh = vh * scale;
+    const dx = (OUT_WIDTH - dw) / 2;
+    const dy = (OUT_HEIGHT - dh) / 2;
+    ctx.drawImage(videoEl, dx, dy, dw, dh);
+  }
 
   const now = new Date();
   const lines = [

@@ -23,7 +23,10 @@ header h1 {
 
 #preview {
   width: 100%;
+  max-width: min(100%, 360px);
   max-height: 70vh;
+  margin-inline: auto;
+  display: block;
   background: #111;
   border-radius: 8px;
   aspect-ratio: 9 / 16;
@@ -46,6 +49,11 @@ input[type="url"] {
   padding: 0.5rem;
   font-size: 0.85rem;
   box-sizing: border-box;
+}
+
+input[type="url"][readonly] {
+  opacity: 0.9;
+  background: rgba(128, 128, 128, 0.12);
 }
 
 .hint {

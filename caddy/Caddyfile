@@ -58,7 +58,7 @@
 			try_files {path} /index.html
 			file_server
 		}
-		respond "Ajoutez ?token=<CAPTURE_TOKEN> à l’URL capture" 401
+		respond "Token capture requis (?token= une fois ou cookie capture_token)" 401
 	}
 }
 
