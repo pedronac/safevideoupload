@@ -68,10 +68,8 @@
 	import whip_auth
 	import capture_pages
 
-	handle /viewer {
-		redir /viewer/ permanent
-	}
-	handle_path /viewer/* {
+	handle /viewer* {
+		uri strip_prefix /viewer
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
@@ -94,10 +92,8 @@
 	import whip_auth
 	import capture_pages
 
-	handle /viewer {
-		redir /viewer/ permanent
-	}
-	handle_path /viewer/* {
+	handle /viewer* {
+		uri strip_prefix /viewer
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
