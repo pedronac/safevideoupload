@@ -14,12 +14,9 @@ services:
       - ./storage/blurred:/storage/blurred
     ports:
       - "8189:8189/udp"
+    # Image MediaMTX (scratch) : pas de wget/shell — healthcheck CMD échoue toujours.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9997/v3/paths/list"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
+      disable: true
 
   blur:
     build:
@@ -28,7 +25,7 @@ services:
     restart: unless-stopped
     depends_on:
       mediamtx:
-        condition: service_healthy
+        condition: service_started
     environment:
       MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554/live}
       MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://mediamtx:1935/blurred}

@@ -10,16 +10,24 @@ docker compose build
 echo "==> docker compose up -d"
 docker compose up -d
 
-echo "==> Attente santé MediaMTX"
+echo "==> Attente API MediaMTX (via réseau Docker — image scratch sans wget)"
 for i in $(seq 1 30); do
-  if docker compose exec -T mediamtx wget -q -O - "http://127.0.0.1:9997/v3/paths/list" >/dev/null 2>&1; then
+  if docker compose run --rm --no-deps blur python -c \
+    "import urllib.request; urllib.request.urlopen('http://mediamtx:9997/v3/paths/list', timeout=3)" \
+    >/dev/null 2>&1; then
     echo "MediaMTX API OK"
     break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "ERREUR : API MediaMTX inaccessible après 60 s"
+    docker compose logs mediamtx --tail 40
+    exit 1
   fi
   sleep 2
 done
 
-docker compose exec -T mediamtx wget -q -O - "http://127.0.0.1:9997/v3/paths/list" | head -c 200
+docker compose run --rm --no-deps blur python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://mediamtx:9997/v3/paths/list', timeout=5).read()[:200].decode())"
 echo ""
 
 echo "==> Page viewer HTTP"
