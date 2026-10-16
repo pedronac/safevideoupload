@@ -70,7 +70,8 @@
 
 	redir /viewer /viewer/ permanent
 
-	handle_path /viewer/* {
+	handle /viewer* {
+		uri strip_prefix /viewer
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
@@ -95,7 +96,8 @@
 
 	redir /viewer /viewer/ permanent
 
-	handle_path /viewer/* {
+	handle /viewer* {
+		uri strip_prefix /viewer
 		root * /srv/viewer
 		try_files {path} /index.html
 		file_server
