@@ -84,12 +84,6 @@
 
 # Production : TLS automatique (Let's Encrypt) quand DOMAIN != localhost
 {$DOMAIN} {
-	@notLocalhost expression `"{$DOMAIN}" != "localhost"`
-
-	handle @notLocalhost {
-		# TLS géré automatiquement par Caddy
-	}
-
 	import hls_blurred_only
 	import whip_auth
 	import capture_pages
