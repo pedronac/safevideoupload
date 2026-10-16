@@ -12,14 +12,22 @@ docker compose up -d
 
 echo "==> Attente santé MediaMTX"
 for i in $(seq 1 30); do
-  if docker compose exec -T mediamtx wget -q -O - "http://127.0.0.1:9997/v3/paths/list" >/dev/null 2>&1; then
+  if docker compose run --rm --no-deps blur python -c \
+    'import urllib.request; urllib.request.urlopen("http://mediamtx:9997/v3/paths/list")' \
+    >/dev/null 2>&1; then
     echo "MediaMTX API OK"
     break
+  fi
+  if [ "$i" -eq 30 ]; then
+    echo "MediaMTX API indisponible après 30 tentatives"
+    docker compose logs mediamtx
+    exit 1
   fi
   sleep 2
 done
 
-docker compose exec -T mediamtx wget -q -O - "http://127.0.0.1:9997/v3/paths/list" | head -c 200
+docker compose run --rm --no-deps blur python -c \
+  'import urllib.request; print(urllib.request.urlopen("http://mediamtx:9997/v3/paths/list").read()[:200].decode())'
 echo ""
 
 echo "==> Page viewer HTTP"
