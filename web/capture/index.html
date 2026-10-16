@@ -15,7 +15,7 @@
 
     <main>
       <video id="preview" playsinline muted autoplay></video>
-      <canvas id="overlay-canvas" width="1280" height="720" hidden></canvas>
+      <canvas id="overlay-canvas" width="720" height="1280" hidden></canvas>
 
       <section class="panel">
         <label>
@@ -23,9 +23,9 @@
           <input id="whip-url" type="url" spellcheck="false" />
         </label>
         <p class="hint">
-          Ex. <code>https://stream.domaine.com/live/live/whip</code> ou
-          <code>http://&lt;tailscale-ip&gt;:8889/live/whip</code> en test LAN.
-          Safari iOS exige HTTPS hors localhost.
+          Le secret d’accès n’est plus affiché dans l’URL WHIP (authentification
+          <code>Authorization: Bearer</code>). Ouvrez la page une fois avec
+          <code>?token=…</code> : le jeton est mémorisé (cookie) et retiré de la barre d’adresse.
         </p>
 
         <div class="actions">

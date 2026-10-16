@@ -1,5 +1,5 @@
 /**
- * Capture Safari iOS 15+ : overlay GPS/heure sur canvas, WHIP → MediaMTX, MediaRecorder local.
+ * Capture mobile : overlay GPS/heure sur canvas portrait, WHIP → MediaMTX, MediaRecorder local.
  */
 
 const preview = document.getElementById("preview");
@@ -14,38 +14,52 @@ const gpsEl = document.getElementById("gps");
 const clockEl = document.getElementById("clock");
 const backupSizeEl = document.getElementById("backup-size");
 
-const TARGET_WIDTH = 1280;
-const TARGET_HEIGHT = 720;
+/** Sortie portrait marathon (9:16) */
+const OUT_WIDTH = 720;
+const OUT_HEIGHT = 1280;
 const TARGET_FPS = 30;
 const VIDEO_BITRATE = 3_000_000;
 const RECORDER_TIMESLICE_MS = 60_000;
+const CAPTURE_COOKIE = "capture_token";
 
 const params = new URLSearchParams(window.location.search);
 
-function getCaptureToken() {
+function persistCaptureToken(token) {
+  if (!token) return;
+  sessionStorage.setItem("captureToken", token);
+  document.cookie = `${CAPTURE_COOKIE}=${encodeURIComponent(token)}; Path=/capture; Max-Age=86400; Secure; SameSite=Strict`;
+}
+
+function bootstrapAuthFromUrl() {
   const fromQuery = params.get("token");
   if (fromQuery) {
-    localStorage.setItem("captureToken", fromQuery);
-    return fromQuery;
+    persistCaptureToken(fromQuery);
+    params.delete("token");
+    const clean = params.toString()
+      ? `${location.pathname}?${params}`
+      : location.pathname;
+    history.replaceState({}, "", clean);
   }
-  return localStorage.getItem("captureToken") || "";
+}
+
+bootstrapAuthFromUrl();
+
+function getCaptureToken() {
+  return sessionStorage.getItem("captureToken") || "";
 }
 
 function defaultWhipUrl() {
   if (params.get("whip")) return params.get("whip");
-  const saved = localStorage.getItem("whipUrl");
-  if (saved) return saved;
   const { protocol, hostname, port } = window.location;
-  const token = getCaptureToken();
-  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+  const base = `${protocol}//${hostname}/live/whip`;
   if (port === "80" || port === "443" || port === "") {
-    return `${protocol}//${hostname}/live/whip${tokenQuery}`;
+    return base;
   }
-  return `${protocol}//${hostname}/live/whip${tokenQuery}`;
+  return base;
 }
 
-const defaultWhip = defaultWhipUrl();
-whipInput.value = defaultWhip;
+whipInput.value = defaultWhipUrl();
+whipInput.readOnly = true;
 
 let cameraStream = null;
 let composedStream = null;
@@ -70,7 +84,20 @@ function updateBackupSize() {
 }
 
 function drawOverlayFrame(videoEl) {
-  ctx.drawImage(videoEl, 0, 0, TARGET_WIDTH, TARGET_HEIGHT);
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  if (!vw || !vh) return;
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, OUT_WIDTH, OUT_HEIGHT);
+
+  const scale = Math.min(OUT_WIDTH / vw, OUT_HEIGHT / vh);
+  const dw = vw * scale;
+  const dh = vh * scale;
+  const dx = (OUT_WIDTH - dw) / 2;
+  const dy = (OUT_HEIGHT - dh) / 2;
+  ctx.drawImage(videoEl, dx, dy, dw, dh);
+
   const now = new Date();
   const lines = [
     now.toLocaleString("fr-FR", { timeZone: "Europe/Paris" }),
@@ -78,12 +105,14 @@ function drawOverlayFrame(videoEl) {
       ? `GPS ${lastPosition.coords.latitude.toFixed(5)}, ${lastPosition.coords.longitude.toFixed(5)} ±${Math.round(lastPosition.coords.accuracy)}m`
       : "GPS en attente…",
   ];
+  const boxH = lines.length * 28 + 16;
+  const boxW = Math.min(OUT_WIDTH - 24, 620);
   ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(12, TARGET_HEIGHT - 12 - lines.length * 28, 620, lines.length * 28 + 16);
+  ctx.fillRect(12, OUT_HEIGHT - 12 - boxH, boxW, boxH);
   ctx.fillStyle = "#fff";
   ctx.font = "22px system-ui, sans-serif";
   lines.forEach((line, i) => {
-    ctx.fillText(line, 24, TARGET_HEIGHT - 24 - (lines.length - 1 - i) * 28);
+    ctx.fillText(line, 24, OUT_HEIGHT - 24 - (lines.length - 1 - i) * 28);
   });
   clockEl.textContent = lines[0];
   gpsEl.textContent = lines[1];
@@ -120,15 +149,15 @@ async function getCameraStream() {
     },
     video: {
       facingMode: { ideal: "environment" },
-      width: { ideal: TARGET_WIDTH },
-      height: { ideal: TARGET_HEIGHT },
+      width: { ideal: OUT_WIDTH },
+      height: { ideal: OUT_HEIGHT },
       frameRate: { ideal: TARGET_FPS },
     },
   };
   return navigator.mediaDevices.getUserMedia(constraints);
 }
 
-function buildComposedStream(videoEl) {
+function buildComposedStream() {
   const canvasStream = canvas.captureStream(TARGET_FPS);
   const tracks = [...canvasStream.getVideoTracks()];
   const audioTracks = cameraStream.getAudioTracks();
@@ -140,23 +169,24 @@ function buildComposedStream(videoEl) {
 
 async function applyVideoBitrate(sender) {
   if (!sender?.getParameters) return;
-  const params = sender.getParameters();
-  if (!params.encodings?.length) {
-    params.encodings = [{}];
+  const p = sender.getParameters();
+  if (!p.encodings?.length) {
+    p.encodings = [{}];
   }
-  params.encodings[0].maxBitrate = VIDEO_BITRATE;
-  await sender.setParameters(params);
+  p.encodings[0].maxBitrate = VIDEO_BITRATE;
+  await sender.setParameters(p);
 }
 
 async function publishWhip(stream, whipUrl) {
-  const pc = new RTCPeerConnection({
+  const whipEndpoint = whipUrl.split("?")[0];
+  const icePc = new RTCPeerConnection({
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
 
-  stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+  stream.getTracks().forEach((track) => icePc.addTrack(track, stream));
 
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
+  const offer = await icePc.createOffer();
+  await icePc.setLocalDescription(offer);
 
   const headers = {
     "Content-Type": "application/sdp",
@@ -166,7 +196,7 @@ async function publishWhip(stream, whipUrl) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(whipUrl, {
+  const response = await fetch(whipEndpoint, {
     method: "POST",
     headers,
     body: offer.sdp,
@@ -178,20 +208,22 @@ async function publishWhip(stream, whipUrl) {
   }
 
   const answerSdp = await response.text();
-  await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+  await icePc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-  const videoSender = pc.getSenders().find((s) => s.track?.kind === "video");
+  const videoSender = icePc.getSenders().find((s) => s.track?.kind === "video");
   await applyVideoBitrate(videoSender);
 
-  pc.onconnectionstatechange = () => {
-    if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-      setStatus(`WebRTC : ${pc.connectionState} — vérifiez réseau / ICE`);
-    } else if (pc.connectionState === "connected") {
+  icePc.onconnectionstatechange = () => {
+    if (icePc.connectionState === "failed" || icePc.connectionState === "disconnected") {
+      setStatus(
+        `WebRTC : ${icePc.connectionState} — pare-feu UDP 8189 / ICE (stream.iznac.com)`,
+      );
+    } else if (icePc.connectionState === "connected") {
       setStatus("Diffusion WebRTC active");
     }
   };
 
-  return pc;
+  return icePc;
 }
 
 function startLocalRecorder(stream) {
@@ -228,7 +260,6 @@ async function startCapture() {
     setStatus("Indiquez l’URL WHIP");
     return;
   }
-  localStorage.setItem("whipUrl", whipUrl);
 
   btnStart.disabled = true;
   setStatus("Accès caméra…");
@@ -240,7 +271,7 @@ async function startCapture() {
     await preview.play();
 
     drawTimer = window.setInterval(() => drawOverlayFrame(preview), 1000 / TARGET_FPS);
-    composedStream = buildComposedStream(preview);
+    composedStream = buildComposedStream();
 
     setStatus("Connexion WHIP…");
     pc = await publishWhip(composedStream, whipUrl);
@@ -308,5 +339,5 @@ btnStop.addEventListener("click", () => stopCapture());
 btnBackup.addEventListener("click", () => downloadBackup());
 
 if (!window.isSecureContext && !["localhost", "127.0.0.1"].includes(location.hostname)) {
-  setStatus("HTTPS requis pour caméra + WebRTC (Tailscale Funnel ou Caddy)");
+  setStatus("HTTPS requis pour caméra + WebRTC");
 }
