@@ -19,7 +19,7 @@
 # WHIP /live : Bearer ou ?token= si CAPTURE_TOKEN est défini.
 (whip_auth) {
 	handle /live/* {
-		@open expression `{$CAPTURE_TOKEN} == ""`
+		@open expression `"{$CAPTURE_TOKEN}" == ""`
 		handle @open {
 			reverse_proxy mediamtx:8889
 		}
@@ -43,7 +43,7 @@
 		file_server
 	}
 	handle /capture* {
-		@open expression `{$CAPTURE_TOKEN} == ""`
+		@open expression `"{$CAPTURE_TOKEN}" == ""`
 		handle @open {
 			root * /srv/capture
 			try_files {path} /index.html
@@ -78,7 +78,7 @@
 
 # Production : TLS automatique (Let's Encrypt) quand DOMAIN != localhost
 {$DOMAIN} {
-	@notLocalhost expression {$DOMAIN} != "localhost"
+	@notLocalhost expression `"{$DOMAIN}" != "localhost"`
 
 	handle @notLocalhost {
 		# TLS géré automatiquement par Caddy
