@@ -109,6 +109,7 @@
       const WAIT_RETRY_MS = 4000;
       const ERROR_RETRY_MS = 6000;
       const STALL_LIMIT_MS = 25000;
+      const BUFFER_TARGET_S = 12;
 
       let hls = null;
       let retryTimer = null;
@@ -212,7 +213,12 @@
         video.onplaying = onPlaying;
 
         if (window.Hls && Hls.isSupported()) {
-          hls = new Hls({ lowLatencyMode: true, backBufferLength: 30 });
+          hls = new Hls({
+            lowLatencyMode: false,
+            backBufferLength: 30,
+            maxBufferLength: BUFFER_TARGET_S,
+            maxMaxBufferLength: BUFFER_TARGET_S * 2,
+          });
           hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
           hls.on(Hls.Events.ERROR, (_, data) => {
             if (!data.fatal) return;
