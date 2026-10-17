@@ -155,6 +155,9 @@
 			root * {$WEB_DIR:/srv}/public
 			file_server
 		}
+		handle {
+			respond "Introuvable" 404
+		}
 	}
 	handle /api/public/* {
 		respond "Page publique désactivée" 404

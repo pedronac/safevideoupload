@@ -97,8 +97,8 @@ function probe(file) {
   return { width: v.width, height: v.height, vcodec: v.codec_name, acodec: a?.codec_name, duration: Number(data.format?.duration || 0) };
 }
 
-function maxPacketGap(file) {
-  const r = run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time", "-of", "csv=p=0", file]);
+function maxPacketGap(file, stream = "v:0") {
+  const r = run("ffprobe", ["-v", "error", "-select_streams", stream, "-show_entries", "packet=pts_time", "-of", "csv=p=0", file]);
   const times = r.out
     .split("\n")
     .map((l) => Number(l.trim().replace(/,$/, "")))
@@ -392,6 +392,11 @@ async function verifyServer({ sid, recordedParts }) {
   const gap = maxPacketGap(rawPath);
   // Le webm de MediaRecorder n'annonce pas de durée : on la déduit des horodatages d'images.
   rawInfo.duration = gap.span + 1 / 30;
+  const audioSpan = maxPacketGap(rawPath, "a:0").span;
+  // Chromium sans GPU, en concurrence avec le floutage sur la même machine, perd des images vidéo (pas de l'audio) :
+  // la durée « réelle » de l'enregistrement est donc celle de la piste la plus longue.
+  rawInfo.fullDuration = Math.max(rawInfo.duration, audioSpan + 0.05);
+  console.log(`   (flux brut : vidéo ${gap.span.toFixed(2)} s, audio ${audioSpan.toFixed(2)} s)`);
   check("S1 flux brut recollé lisible", rawInfo.width > 0 && rawInfo.duration > RECORD_SECONDS * 0.8, `${rawFile} ${rawInfo.width}x${rawInfo.height} ${rawInfo.duration.toFixed(1)} s, ${recordedParts} parties`);
   check("S2 aucun trou dans le flux (plus grand écart entre images)", gap.maxGap < 0.5, `${gap.frames} images, écart max ${(gap.maxGap * 1000).toFixed(0)} ms (dont jonctions entre parties)`);
 
@@ -423,7 +428,7 @@ async function verifyServer({ sid, recordedParts }) {
     return info;
   });
   check("S7 sorties 1080x1920 H.264 + AAC", infos.every((i) => i.width === 1080 && i.height === 1920 && i.vcodec === "h264" && i.acodec === "aac"), infos.map((i) => `${i.width}x${i.height}/${i.vcodec}/${i.acodec}`).slice(0, 1).join());
-  check("S8 durées cumulées = durée du flux brut (aucune perte)", Math.abs(total - rawInfo.duration) < 0.6, `flouté ${total.toFixed(2)} s / brut ${rawInfo.duration.toFixed(2)} s`);
+  check("S8 durées cumulées = durée du flux brut (aucune perte)", Math.abs(total - rawInfo.fullDuration) < 0.6, `flouté ${total.toFixed(2)} s / brut ${rawInfo.fullDuration.toFixed(2)} s`);
   const assembled = probe(path.join(blurDir, "session.mp4"));
   check("S9 MP4 de session assemblé", Math.abs(assembled.duration - total) < 0.6 && assembled.width === 1080, `${assembled.duration.toFixed(1)} s`);
   check("S10 fichier brut privé hors des chemins publics", fs.existsSync(rawPath) && !fs.existsSync(path.join(blurDir, rawFile)));

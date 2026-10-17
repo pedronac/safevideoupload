@@ -748,7 +748,8 @@ async function drainRecorder(r) {
       /* déjà arrêté */
     }
   }
-  await Promise.race([r.stopped, new Promise((resolve) => setTimeout(resolve, 5000))]);
+  setStatus("Finalisation de l’enregistrement…");
+  await Promise.race([r.stopped, new Promise((resolve) => setTimeout(resolve, 120_000))]);
   await r.chain.catch(() => {});
   await finishSession(r);
 }
