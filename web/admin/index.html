@@ -93,6 +93,64 @@
         font-size: 0.85rem;
         opacity: 0.85;
       }
+      .warn {
+        background: #4a2020;
+        border: 1px solid #b44;
+        color: #ffd0c8;
+        padding: 0.6rem 0.8rem;
+        border-radius: 6px;
+        margin: 0.5rem 0;
+      }
+      .bar {
+        height: 10px;
+        background: #2a2f3a;
+        border-radius: 5px;
+        overflow: hidden;
+        margin: 0.4rem 0;
+      }
+      .bar > div {
+        height: 100%;
+        background: #3d6fd6;
+      }
+      .bar.low > div {
+        background: #d85c4a;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 0.5rem;
+      }
+      .stat {
+        background: #12141a;
+        border-radius: 6px;
+        padding: 0.5rem 0.7rem;
+      }
+      .stat b {
+        display: block;
+        font-size: 1.15rem;
+      }
+      .tag {
+        display: inline-block;
+        padding: 0 0.4rem;
+        border-radius: 4px;
+        background: #2a2f3a;
+        font-size: 0.78rem;
+      }
+      .tag.ok {
+        background: #1f4a2a;
+        color: #bfe8bf;
+      }
+      .tag.bad {
+        background: #5a2525;
+      }
+      details > summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .segs a {
+        margin-right: 0.5rem;
+        white-space: nowrap;
+      }
     </style>
   </head>
   <body>
@@ -110,9 +168,39 @@
       <div id="app" hidden>
         <h1>Administration marathon</h1>
         <p class="meta">
-          Gestion du mot de passe de capture et des enregistrements sur le serveur. Le jeton admin est distinct du
-          mot de passe opérateur.
+          Capture hors-ligne : téléphone &rarr; upload &rarr; floutage &rarr; page publique. Le jeton admin est
+          distinct du mot de passe opérateur.
         </p>
+
+        <section id="status-section">
+          <h2 style="font-size: 1rem; margin: 0 0 0.75rem">État du serveur</h2>
+          <div id="disk-warning" class="warn" hidden role="alert"></div>
+          <div id="disk-bar" class="bar"><div></div></div>
+          <p id="disk-text" class="meta"></p>
+          <div class="grid" id="queue-grid"></div>
+          <p id="proc-text" class="meta"></p>
+          <button type="button" id="btn-retry" class="secondary">Relancer les segments en échec</button>
+          <p id="status-msg" class="error" role="status"></p>
+        </section>
+
+        <section>
+          <h2 style="font-size: 1rem; margin: 0 0 0.75rem">Sessions de capture</h2>
+          <button type="button" id="btn-sessions" class="secondary">Actualiser</button>
+          <p id="sessions-msg" class="error" role="status"></p>
+          <table>
+            <thead>
+              <tr>
+                <th>Début (Paris)</th>
+                <th>État</th>
+                <th>Parties</th>
+                <th>Brut</th>
+                <th>Flouté</th>
+                <th>Téléchargements</th>
+              </tr>
+            </thead>
+            <tbody id="sessions-body"></tbody>
+          </table>
+        </section>
 
         <section>
           <h2 style="font-size: 1rem; margin: 0 0 0.75rem">Mot de passe capture</h2>
@@ -125,21 +213,23 @@
         </section>
 
         <section>
-          <h2 style="font-size: 1rem; margin: 0 0 0.75rem">Enregistrements</h2>
-          <button type="button" id="btn-refresh" class="secondary">Actualiser</button>
-          <p id="recordings-msg" class="error" role="status"></p>
-          <table>
-            <thead>
-              <tr>
-                <th>Dossier</th>
-                <th>Fichier</th>
-                <th>Taille</th>
-                <th>Modifié</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="recordings-body"></tbody>
-          </table>
+          <details>
+            <summary>Tous les fichiers (brut et flouté)</summary>
+            <button type="button" id="btn-refresh" class="secondary">Actualiser</button>
+            <p id="recordings-msg" class="error" role="status"></p>
+            <table>
+              <thead>
+                <tr>
+                  <th>Dossier</th>
+                  <th>Fichier</th>
+                  <th>Taille</th>
+                  <th>Modifié</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="recordings-body"></tbody>
+            </table>
+          </details>
         </section>
 
         <button type="button" id="btn-logout" class="secondary">Déconnexion</button>
@@ -148,16 +238,17 @@
 
     <script>
       const TOKEN_KEY = "adminToken";
-      const gate = document.getElementById("gate");
-      const app = document.getElementById("app");
-      const gateForm = document.getElementById("gate-form");
-      const gateError = document.getElementById("gate-error");
-      const adminTokenInput = document.getElementById("admin-token");
-      const captureForm = document.getElementById("capture-form");
-      const captureTokenInput = document.getElementById("capture-token");
-      const captureMsg = document.getElementById("capture-msg");
-      const recordingsBody = document.getElementById("recordings-body");
-      const recordingsMsg = document.getElementById("recordings-msg");
+      const $ = (id) => document.getElementById(id);
+      const gate = $("gate");
+      const app = $("app");
+      const gateForm = $("gate-form");
+      const gateError = $("gate-error");
+      const adminTokenInput = $("admin-token");
+      const captureForm = $("capture-form");
+      const captureTokenInput = $("capture-token");
+      const captureMsg = $("capture-msg");
+      const recordingsBody = $("recordings-body");
+      const recordingsMsg = $("recordings-msg");
 
       function token() {
         return sessionStorage.getItem(TOKEN_KEY) || "";
@@ -167,6 +258,9 @@
         if (value) sessionStorage.setItem(TOKEN_KEY, value);
         else sessionStorage.removeItem(TOKEN_KEY);
       }
+
+      const esc = (v) =>
+        String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
       async function verifyAdminToken(t) {
         const res = await fetch("/admin-auth", {
@@ -222,32 +316,120 @@
         return new Date(ts * 1000).toLocaleString("fr-FR", { timeZone: "Europe/Paris" });
       }
 
-      async function downloadFile(url) {
-        recordingsMsg.textContent = "Téléchargement…";
-        recordingsMsg.className = "";
+      function formatDuration(s) {
+        const t = Math.round(s);
+        return `${Math.floor(t / 60)} min ${String(t % 60).padStart(2, "0")} s`;
+      }
+
+      /** Lien signé (15 min) : le navigateur télécharge directement, sans charger le fichier en mémoire. */
+      async function downloadFile(bucket, path) {
         try {
-          const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${token()}` },
-            cache: "no-store",
-          });
-          if (res.status === 401) {
-            setToken("");
-            showGate("Session expirée. Reconnectez-vous.");
-            return;
-          }
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const blob = await res.blob();
-          const name = url.split("/").pop() || "fichier";
-          const objectUrl = URL.createObjectURL(blob);
+          const { url } = await api("/sign", { method: "POST", body: JSON.stringify({ bucket, path }) });
           const a = document.createElement("a");
-          a.href = objectUrl;
-          a.download = name;
+          a.href = url;
+          a.download = path.split("/").pop();
+          document.body.appendChild(a);
           a.click();
-          setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-          recordingsMsg.textContent = "";
+          a.remove();
         } catch (err) {
-          recordingsMsg.textContent = err.message || String(err);
-          recordingsMsg.className = "error";
+          if (err.message !== "unauthorized") alert(err.message || String(err));
+        }
+      }
+
+      function bindDownloads(root) {
+        root.querySelectorAll("[data-dl]").forEach((el) => {
+          el.addEventListener("click", (e) => {
+            e.preventDefault();
+            downloadFile(el.dataset.bucket, el.dataset.dl);
+          });
+        });
+      }
+
+      function statBox(label, value) {
+        return `<div class="stat"><span class="meta">${esc(label)}</span><b>${esc(value)}</b></div>`;
+      }
+
+      async function loadStatus() {
+        try {
+          const st = await api("/status");
+          const d = st.disk;
+          $("disk-warning").hidden = !d.low;
+          $("disk-warning").textContent = d.low
+            ? `Disque presque plein : ${d.free_percent} % libre (${formatBytes(d.free)}), seuil ${d.warn_percent} %. ` +
+              "Libérez de la place (voir README) avant la prochaine capture."
+            : "";
+          $("disk-bar").className = `bar${d.low ? " low" : ""}`;
+          $("disk-bar").firstElementChild.style.width = `${Math.min(100, 100 - d.free_percent)}%`;
+          $("disk-text").textContent =
+            `Disque : ${formatBytes(d.free)} libres sur ${formatBytes(d.total)} (${d.free_percent} %). ` +
+            `Brut ${formatBytes(d.raw)}, flouté ${formatBytes(d.blurred)}.`;
+          const seg = st.queue.segments;
+          const p = st.processor || {};
+          $("queue-grid").innerHTML =
+            statBox("À flouter", (seg.cut || 0) + (seg.blurring || 0)) +
+            statBox("En cours", seg.blurring || 0) +
+            statBox("Floutés", seg.blurred || 0) +
+            statBox("En échec", seg.failed || 0) +
+            statBox("Parties en attente d’ordre", st.queue.parts_waiting) +
+            statBox("Rapport temps réel", p.avg_ratio ? `x${p.avg_ratio.toFixed(2)}` : "—");
+          $("proc-text").textContent = p.ts
+            ? `Processeur : ${p.alive ? "actif" : "INACTIF"} (dernier signe il y a ${Math.round(p.age_s)} s), ` +
+              `${p.busy}/${p.workers} worker(s) occupé(s), échelle ${p.scale}.`
+            : "Processeur : aucun signe de vie pour l’instant.";
+          $("status-msg").textContent = "";
+        } catch (err) {
+          if (err.message !== "unauthorized") $("status-msg").textContent = err.message || String(err);
+        }
+      }
+
+      async function loadSessions() {
+        $("sessions-msg").textContent = "Chargement…";
+        try {
+          const { sessions } = await api("/sessions");
+          $("sessions-body").innerHTML =
+            sessions
+              .map((s) => {
+                const blurred = s.segments.filter((g) => g.status === "blurred");
+                const failed = s.segments.filter((g) => g.status === "failed").length;
+                const links = [
+                  s.raw ? `<a href="#" data-bucket="raw" data-dl="${esc(s.raw)}">Brut</a>` : "",
+                  s.gps ? `<a href="#" data-bucket="raw" data-dl="${esc(s.gps)}">GPS</a>` : "",
+                  s.assembled ? `<a href="#" data-bucket="blurred" data-dl="${esc(s.assembled)}">Session floutée</a>` : "",
+                ].join(" ");
+                const segLinks = blurred
+                  .map((g) => `<a href="#" data-bucket="blurred" data-dl="${esc(g.file)}">#${g.idx}</a>`)
+                  .join("");
+                const state =
+                  s.status === "open"
+                    ? '<span class="tag ok">en cours</span>'
+                    : `<span class="tag">fermée</span>`;
+                const finalize =
+                  s.status === "open"
+                    ? `<button type="button" class="secondary fin" data-id="${esc(s.id)}">Finaliser</button>`
+                    : "";
+                return `<tr>
+                  <td>${esc(new Date(s.started_at_ms).toLocaleString("fr-FR", { timeZone: "Europe/Paris" }))}<br />
+                    <span class="meta">${esc(s.id.slice(0, 8))} · ${esc(s.size)}</span></td>
+                  <td>${state}${failed ? ` <span class="tag bad">${failed} échec(s)</span>` : ""}<br />${finalize}
+                    ${s.last_error ? `<br /><span class="error">${esc(s.last_error)}</span>` : ""}</td>
+                  <td>${s.parts}${s.total_parts != null ? ` / ${s.total_parts}` : ""}</td>
+                  <td>${formatBytes(s.raw_bytes)}</td>
+                  <td>${blurred.length} / ${s.segments.length} segment(s)</td>
+                  <td>${links}<details class="segs"><summary>Segments floutés</summary>${segLinks || "—"}</details></td>
+                </tr>`;
+              })
+              .join("") || '<tr><td colspan="6">Aucune session pour l’instant.</td></tr>';
+          bindDownloads($("sessions-body"));
+          $("sessions-body").querySelectorAll("button.fin").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              if (!confirm("Fermer cette session ? Les parties qui n’ont pas encore été reçues seront refusées.")) return;
+              await api("/finalize", { method: "POST", body: JSON.stringify({ session: btn.dataset.id }) });
+              loadSessions();
+            });
+          });
+          $("sessions-msg").textContent = "";
+        } catch (err) {
+          if (err.message !== "unauthorized") $("sessions-msg").textContent = err.message || String(err);
         }
       }
 
@@ -260,19 +442,16 @@
             .map(
               (r) =>
                 `<tr>
-                  <td>${r.bucket}</td>
-                  <td><code>${r.path}</code></td>
+                  <td>${esc(r.bucket)}</td>
+                  <td><code>${esc(r.path)}</code></td>
                   <td>${formatBytes(r.size)}</td>
                   <td>${formatTime(r.mtime)}</td>
-                  <td><button type="button" class="dl secondary" data-url="${r.download}">Télécharger</button></td>
+                  <td><button type="button" class="secondary" data-bucket="${esc(r.bucket)}" data-dl="${esc(r.path)}">Télécharger</button></td>
                 </tr>`,
             )
             .join("");
-          recordingsBody.innerHTML =
-            rows || '<tr><td colspan="5">Aucun fichier pour l’instant.</td></tr>';
-          recordingsBody.querySelectorAll("button.dl").forEach((btn) => {
-            btn.addEventListener("click", () => downloadFile(btn.dataset.url));
-          });
+          recordingsBody.innerHTML = rows || '<tr><td colspan="5">Aucun fichier pour l’instant.</td></tr>';
+          bindDownloads(recordingsBody);
           recordingsMsg.textContent = "";
         } catch (err) {
           if (err.message !== "unauthorized") {
@@ -280,6 +459,11 @@
             recordingsMsg.className = "error";
           }
         }
+      }
+
+      function refreshAll() {
+        loadStatus();
+        loadSessions();
       }
 
       gateForm.addEventListener("submit", async (e) => {
@@ -294,7 +478,7 @@
         }
         setToken(t);
         showApp();
-        await loadRecordings();
+        refreshAll();
       });
 
       captureForm.addEventListener("submit", async (e) => {
@@ -317,11 +501,27 @@
         }
       });
 
-      document.getElementById("btn-refresh").addEventListener("click", () => loadRecordings());
-      document.getElementById("btn-logout").addEventListener("click", () => {
+      $("btn-refresh").addEventListener("click", () => loadRecordings());
+      $("btn-sessions").addEventListener("click", () => refreshAll());
+      $("btn-retry").addEventListener("click", async () => {
+        try {
+          const r = await api("/retry-failed", { method: "POST", body: "{}" });
+          $("status-msg").textContent = `${r.retried} segment(s) remis en file.`;
+          loadStatus();
+        } catch (err) {
+          if (err.message !== "unauthorized") $("status-msg").textContent = err.message;
+        }
+      });
+      $("btn-logout").addEventListener("click", () => {
         setToken("");
         showGate();
       });
+      $("recordings-body").closest("details").addEventListener("toggle", (e) => {
+        if (e.target.open) loadRecordings();
+      });
+      setInterval(() => {
+        if (!app.hidden && document.visibilityState === "visible") loadStatus();
+      }, 10000);
 
       (async () => {
         const t = token();
@@ -331,7 +531,7 @@
         }
         if (await verifyAdminToken(t)) {
           showApp();
-          await loadRecordings();
+          refreshAll();
         } else {
           setToken("");
           showGate("Jeton expiré ou modifié.");

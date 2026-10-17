@@ -1,5 +1,12 @@
 {
 	email {$ACME_EMAIL}
+	servers {
+		timeouts {
+			read_header 30s
+			# Envoi d'une partie (~10 à 60 Mo) depuis un réseau mobile lent.
+			read_body 15m
+		}
+	}
 }
 
 # En-têtes de sécurité communs ; caméra, micro et géolocalisation limités à ce site.
@@ -8,35 +15,6 @@
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer
 		Permissions-Policy "camera=(self), microphone=(self), geolocation=(self)"
-	}
-}
-
-# Bloc commun : HLS public uniquement sur le chemin flouté (pas de brut /live).
-(hls_blurred_only) {
-	handle /hls/live/* {
-		respond "Flux brut non disponible" 404
-	}
-	handle /hls/blurred/* {
-		uri strip_prefix /hls
-		reverse_proxy mediamtx:8888
-	}
-	handle /hls/* {
-		respond "Chemin HLS non autorisé" 404
-	}
-}
-
-# WHIP /live/* : uniquement Authorization: Bearer <CAPTURE_TOKEN>.
-# Fail closed : si CAPTURE_TOKEN est vide, tout est refusé.
-(whip_auth) {
-	handle /live/* {
-		@authorized expression `"{$CAPTURE_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}"`
-		handle @authorized {
-			reverse_proxy mediamtx:8889
-		}
-		handle {
-			header Cache-Control "no-store"
-			respond "Authentification requise" 401
-		}
 	}
 }
 
@@ -55,13 +33,38 @@
 	}
 }
 
+# Upload des parties vidéo et GPS : uniquement Authorization: Bearer <CAPTURE_TOKEN>.
+# Fail closed : si CAPTURE_TOKEN est vide, tout est refusé. Le service api n'est pas
+# publié sur l'hôte : seul Caddy l'atteint, après cette vérification.
+(upload_api) {
+	handle /api/upload/* {
+		header Cache-Control "no-store"
+		@authorized expression `"{$CAPTURE_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$CAPTURE_TOKEN}"`
+		handle @authorized {
+			request_body {
+				max_size 256MB
+			}
+			reverse_proxy {$API_UPSTREAM:api:8000} {
+				transport http {
+					dial_timeout 10s
+					response_header_timeout 15m
+					write_timeout 15m
+				}
+			}
+		}
+		handle {
+			respond "Authentification requise" 401
+		}
+	}
+}
+
 # Page capture : fichiers statiques publics (l'interface est verrouillée côté JS,
-# la vraie protection est /live/* et /capture-auth).
+# la vraie protection est /api/upload/* et /capture-auth).
 (capture_pages) {
 	redir /capture /capture/ 308
 	handle_path /capture/* {
 		header Cache-Control "no-cache"
-		root * /srv/capture
+		root * {$WEB_DIR:/srv}/capture
 		file_server
 	}
 }
@@ -83,7 +86,7 @@
 (admin_api) {
 	handle /admin/api/* {
 		uri strip_prefix /admin
-		reverse_proxy admin:8080
+		reverse_proxy {$ADMIN_UPSTREAM:admin:8080}
 	}
 }
 
@@ -91,18 +94,19 @@
 	redir /admin /admin/ 308
 	handle_path /admin/* {
 		header Cache-Control "no-cache"
-		root * /srv/admin
+		root * {$WEB_DIR:/srv}/admin
 		file_server
 	}
 }
 
+# Téléchargements admin (brut + flouté) avec Bearer ADMIN_TOKEN.
 (storage_download) {
 	handle /storage-download/raw/* {
 		header Cache-Control "no-store"
 		@authorized expression `"{$ADMIN_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$ADMIN_TOKEN}"`
 		handle @authorized {
 			uri strip_prefix /storage-download/raw
-			root * /storage/raw
+			root * {$STORAGE_DIR:/storage}/raw
 			file_server
 		}
 		handle {
@@ -114,7 +118,7 @@
 		@authorized expression `"{$ADMIN_TOKEN}" != "" && {http.request.header.Authorization} == "Bearer {$ADMIN_TOKEN}"`
 		handle @authorized {
 			uri strip_prefix /storage-download/blurred
-			root * /storage/blurred
+			root * {$STORAGE_DIR:/storage}/blurred
 			file_server
 		}
 		handle {
@@ -123,46 +127,71 @@
 	}
 }
 
-(viewer_pages) {
-	redir /viewer /viewer/ 308
-	handle /viewer* {
-		header Cache-Control "no-cache"
-		uri strip_prefix /viewer
-		root * /srv/viewer
-		try_files {path} /index.html
-		file_server
+# Page publique : vidéos FLOUTÉES uniquement, triées par horodatage. Désactivable avec
+# PUBLIC_PAGE_ENABLED=false. Le brut et le GPS JSON ne sont jamais montés sur ces chemins.
+# /media/* sert des MP4 progressifs (Range géré par file_server).
+(public_site) {
+	@public_on expression `"{$PUBLIC_PAGE_ENABLED:true}" == "true"`
+	handle @public_on {
+		header X-Robots-Tag "noindex, nofollow"
+		handle /api/public/* {
+			header Cache-Control "no-store"
+			reverse_proxy {$API_UPSTREAM:api:8000}
+		}
+		handle_path /media/* {
+			header Cache-Control "public, max-age=3600"
+			root * {$STORAGE_DIR:/storage}/blurred
+			file_server
+		}
+		redir /videos /videos/ 308
+		handle_path /videos/* {
+			header Cache-Control "no-cache"
+			root * {$WEB_DIR:/srv}/public
+			file_server
+		}
+		handle / {
+			header Cache-Control "no-cache"
+			rewrite * /index.html
+			root * {$WEB_DIR:/srv}/public
+			file_server
+		}
+	}
+	handle /api/public/* {
+		respond "Page publique désactivée" 404
+	}
+	handle /media/* {
+		respond "Page publique désactivée" 404
 	}
 	handle / {
-		redir * /viewer/ 302
+		header X-Robots-Tag "noindex, nofollow"
+		respond "Page publique désactivée." 404
 	}
 }
 
 # Développement local uniquement : HTTP sur http://localhost (Host: localhost).
 # Volontairement limité à "localhost" : en production, l'IP nue du VPS ne sert
 # rien en clair (le jeton ne doit jamais circuler en HTTP).
-http://localhost {
+http://localhost:{$HTTP_PORT:80} {
 	import common_headers
-	import hls_blurred_only
-	import whip_auth
+	import upload_api
 	import capture_auth
 	import capture_pages
 	import admin_auth
 	import admin_api
 	import admin_pages
 	import storage_download
-	import viewer_pages
+	import public_site
 }
 
 # Production : TLS automatique (Let's Encrypt)
 {$DOMAIN} {
 	import common_headers
-	import hls_blurred_only
-	import whip_auth
+	import upload_api
 	import capture_auth
 	import capture_pages
 	import admin_auth
 	import admin_api
 	import admin_pages
 	import storage_download
-	import viewer_pages
+	import public_site
 }

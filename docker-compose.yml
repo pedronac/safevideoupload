@@ -1,67 +1,70 @@
-# Ports exposés sur l’hôte (pare-feu VPS) :
-#   - 80, 443 (TCP) : Caddy (HTTPS viewer, capture, WHIP, HLS flouté)
-#   - 8189 UDP + TCP : ICE WebRTC MediaMTX (le flux du téléphone arrive ici ;
-#     TCP = repli quand l'opérateur / le pare-feu bloque l'UDP)
-# Tout le reste (RTSP, RTMP, API, HLS interne) reste sur le réseau Docker.
+# Ports exposés sur l'hôte (pare-feu VPS) : 80 et 443 (TCP) uniquement — Caddy.
+# Plus de MediaMTX ni de port 8189 : la version hors-ligne n'a pas de direct WebRTC.
+# Tout le reste (api, blur, admin) reste sur le réseau Docker.
+
+x-storage-env: &storage-env
+  STORAGE_DIR: /storage
 
 services:
-  mediamtx:
-    image: bluenviron/mediamtx:1.9.3
-    container_name: safevideoupload-mediamtx
+  api:
+    build:
+      context: ./services
+      dockerfile: api/Dockerfile
+    container_name: safevideoupload-api
     restart: unless-stopped
+    environment:
+      <<: *storage-env
+      PUBLIC_PAGE_ENABLED: ${PUBLIC_PAGE_ENABLED:-true}
+      MAX_PART_MB: ${MAX_PART_MB:-256}
+      MIN_FREE_GB: ${MIN_FREE_GB:-2}
     volumes:
-      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
-      - ./storage/raw:/storage/raw
-      - ./storage/blurred:/storage/blurred
-    ports:
-      - "8189:8189/udp"
-      - "8189:8189/tcp"
-    # Image MediaMTX (scratch) : pas de wget/shell — healthcheck CMD échoue toujours.
+      - ./storage:/storage
     healthcheck:
-      disable: true
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   blur:
     build:
-      context: ./services/blur
+      context: ./services
+      dockerfile: blur/Dockerfile
     container_name: safevideoupload-blur
     restart: unless-stopped
-    depends_on:
-      mediamtx:
-        condition: service_started
     environment:
-      MEDIAMTX_RTSP_URL: ${MEDIAMTX_RTSP_URL:-rtsp://mediamtx:8554/live}
-      MEDIAMTX_RTMP_URL: ${MEDIAMTX_RTMP_URL:-rtmp://mediamtx:1935/blurred}
-      YOUTUBE_RTMP_URL: ${YOUTUBE_RTMP_URL:-}
-      BLUR_CHUNK_SECONDS: ${BLUR_CHUNK_SECONDS:-6}
-      BLUR_PUSH_IDLE_CLOSE_S: ${BLUR_PUSH_IDLE_CLOSE_S:-120}
-      BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-640x360}
-      # Workers de floutage en parallèle (1 segment brut = 1 worker ; surveiller le CPU sur 4 cœurs).
-      BLUR_PROCESSOR_WORKERS: ${BLUR_PROCESSOR_WORKERS:-1}
-      # Limites de threads pour deface/ONNX (laisser vide = défaut runtime).
+      <<: *storage-env
+      SEGMENT_SECONDS: ${SEGMENT_SECONDS:-60}
+      # Échelle d'analyse des visages, écrite en paysage ; inversée automatiquement en portrait.
+      BLUR_PROCESS_SCALE: ${BLUR_PROCESS_SCALE:-480x270}
+      # Segments floutés en parallèle (surveiller le CPU : 4 vCPU => 2 workers x 2 threads).
+      BLUR_PROCESSOR_WORKERS: ${BLUR_PROCESSOR_WORKERS:-2}
+      BLUR_ASSEMBLE_SESSION: ${BLUR_ASSEMBLE_SESSION:-true}
+      BLUR_X264_PRESET: ${BLUR_X264_PRESET:-veryfast}
+      SESSION_AUTOCLOSE_S: ${SESSION_AUTOCLOSE_S:-21600}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-}
       ONNXRUNTIME_INTRA_OP_NUM_THREADS: ${ONNXRUNTIME_INTRA_OP_NUM_THREADS:-}
       ONNXRUNTIME_INTER_OP_NUM_THREADS: ${ONNXRUNTIME_INTER_OP_NUM_THREADS:-}
-      BLURRED_DIR: /storage/blurred/chunks
     volumes:
-      - ./storage/blurred:/storage/blurred
-    command: ["python", "-u", "/app/blur_worker.py"]
+      - ./storage:/storage
 
   admin:
     build:
-      context: ./services/admin
+      context: ./services
+      dockerfile: admin/Dockerfile
     container_name: safevideoupload-admin
     restart: unless-stopped
+    depends_on:
+      - api
     environment:
+      <<: *storage-env
       ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN requis (openssl rand -hex 32)}
       PROJECT_DIR: /project
       ENV_FILE: /project/.env
       COMPOSE_FILE: /project/docker-compose.yml
-      STORAGE_RAW: /storage/raw
-      STORAGE_BLURRED: /storage/blurred
+      DISK_WARN_FREE_PERCENT: ${DISK_WARN_FREE_PERCENT:-15}
     volumes:
       - .:/project
-      - ./storage/raw:/storage/raw:ro
-      - ./storage/blurred:/storage/blurred:ro
+      - ./storage:/storage
       - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
@@ -69,7 +72,7 @@ services:
     container_name: safevideoupload-caddy
     restart: unless-stopped
     depends_on:
-      - mediamtx
+      - api
       - admin
     ports:
       - "80:80"
@@ -79,9 +82,10 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:-internal@localhost}
       CAPTURE_TOKEN: ${CAPTURE_TOKEN:?CAPTURE_TOKEN requis (openssl rand -hex 32)}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN requis (openssl rand -hex 32)}
+      PUBLIC_PAGE_ENABLED: ${PUBLIC_PAGE_ENABLED:-true}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./web/viewer:/srv/viewer:ro
+      - ./web/public:/srv/public:ro
       - ./web/capture:/srv/capture:ro
       - ./web/admin:/srv/admin:ro
       - ./storage/raw:/storage/raw:ro
