@@ -168,6 +168,13 @@
 	}
 }
 
+# Tout chemin non prévu : 404 (sinon Caddy répond 200 avec un corps vide).
+(fallback_404) {
+	handle {
+		respond "Introuvable" 404
+	}
+}
+
 # Développement local uniquement : HTTP sur http://localhost (Host: localhost).
 # Volontairement limité à "localhost" : en production, l'IP nue du VPS ne sert
 # rien en clair (le jeton ne doit jamais circuler en HTTP).
@@ -181,6 +188,7 @@ http://localhost:{$HTTP_PORT:80} {
 	import admin_pages
 	import storage_download
 	import public_site
+	import fallback_404
 }
 
 # Production : TLS automatique (Let's Encrypt)
@@ -194,4 +202,5 @@ http://localhost:{$HTTP_PORT:80} {
 	import admin_pages
 	import storage_download
 	import public_site
+	import fallback_404
 }
