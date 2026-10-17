@@ -1,175 +1,164 @@
-# safevideoupload — streaming marathon (MVP)
+# safevideoupload — capture hors ligne (sans direct)
 
-Diffusion en direct depuis un téléphone (**Android Chrome** ou **iPhone Safari**) :
+Un téléphone (**iPhone Safari** ou **Android Chrome**) filme en continu en portrait 1080×1920 (~8 Mbit/s, avec le
+micro). Le téléphone **garde tout** dans son stockage local et envoie la vidéo par morceaux de 10 s dès qu'il y a du
+réseau. Le serveur recolle les morceaux, floute les visages (deface) et publie des segments floutés sur une page
+publique. Il n'y a **plus de direct** : ni MediaMTX, ni WebRTC, ni HLS, ni port 8189.
 
 ```
-téléphone  --WHIP/WebRTC-->  Caddy (HTTPS, Bearer)  -->  MediaMTX 1.9.3  (chemin `live`, enregistrement brut)
-                                                              |  RTSP
-                                                              v
-                                            worker de floutage (deface, par segments)
-                                                              |  RTMP (connexion continue)
-                                                              v
-                       MediaMTX (chemin `blurred`) --HLS--> Caddy /hls/blurred/ --> page viewer
+téléphone ── MediaRecorder (1 enregistrement continu, jamais redémarré) ── parties de 10 s ── IndexedDB
+                                                                                   │ PUT /api/upload/… (Bearer, HTTPS)
+                                                                                   ▼
+                                Caddy ──► api (Python) ── raw/<session>/stream.{mp4,webm} (+ gps.json)
+                                                                                   │
+                                            blur (processor.py) : découpe sur images clés (ffmpeg -c copy) ─► deface
+                                                                                   ▼
+                             Caddy /  /videos/  /media/*  ◄── blurred/<session>/seg_NNNNN.mp4 (+ session.mp4)
 ```
 
-- La **page capture** (`/capture/`) est protégée par un **mot de passe** vérifié côté serveur.
-- Le **viewer** (`/viewer/`) est public, ne montre que le flux **flouté** et attend tout seul le début du direct.
-- Le flux **brut** n'est jamais exposé (`/hls/live/` → 404) ; il est enregistré sous `storage/raw/live/`.
-- Sauvegarde locale sur le téléphone (`MediaRecorder`, segments d'~1 min) et push **YouTube** optionnel.
+## Ce que fait chaque page
+
+| Page | Accès | Rôle |
+| --- | --- | --- |
+| `/capture/` | mot de passe `CAPTURE_TOKEN` | enregistre, bufferise hors ligne, envoie, alerte |
+| `/` ou `/videos/` | publique (désactivable) | vidéos **floutées** par date puis heure, lecture enchaînée |
+| `/admin/` | `ADMIN_TOKEN` | disque libre, file de floutage, sessions, téléchargements (brut + flouté), mot de passe de capture |
+
+### Téléphone (`/capture/`)
+
+- Mot de passe vérifié côté serveur (en-tête `Bearer`, jamais dans l'URL). « Se souvenir » est décoché par défaut.
+- Gros bouton **Démarrer / Arrêter** ; l'arrêt demande confirmation.
+- **Image gravée** dans la vidéo : latitude, longitude, précision, date et heure (Europe/Paris, avec secondes).
+  En parallèle, une trace GPS JSON (~1 point par seconde) est envoyée avec la session.
+- Aucune coupure entre morceaux : c'est **un seul enregistrement** `MediaRecorder` découpé en parties (`timeslice`),
+  recollées dans l'ordre par le serveur.
+- Hors ligne : les parties s'accumulent dans IndexedDB (`storage.persist()` demandé), l'envoi reprend tout seul avec
+  attente croissante. Chaque partie est envoyée avec sa somme SHA-256 : renvoi sans risque (idempotent), suppression
+  locale seulement après l'accusé du serveur.
+- Écran maintenu allumé (Wake Lock, vidéo NoSleep en repli). Alertes visuelles + bip WebAudio + vibration : page
+  masquée, caméra ou micro coupés, stockage presque plein, envoi bloqué. Reprise automatique dans une nouvelle session
+  si l'enregistreur s'arrête (3 fois max sur 10 minutes).
+- Panneau d'état (réseau, parties en attente, Mo à envoyer, espace libre) et bouton **Télécharger tout** (secours si
+  le serveur est inaccessible).
+- Format : Chromium → WebM (VP8 + Opus) ; Safari/iOS → MP4 (H.264 + AAC). Un sélecteur dans « Réglages » permet de
+  forcer MP4 ou WebM si un chemin pose problème. Si 1080p ne démarre pas, repli automatique en 720p.
 
 ## Mise en route (VPS)
 
+Seuls les ports **80 et 443** sont à ouvrir.
+
 ```bash
-cp .env.example .env            # puis éditer DOMAIN, ACME_EMAIL
-openssl rand -hex 32            # CAPTURE_TOKEN (mot de passe opérateur) et ADMIN_TOKEN (page /admin/)
+cp .env.example .env            # éditer DOMAIN, ACME_EMAIL
+openssl rand -hex 32            # à lancer deux fois : CAPTURE_TOKEN puis ADMIN_TOKEN
 mkdir -p storage/raw storage/blurred caddy/data caddy/config
 docker compose up -d --build
 ```
 
-Mise à jour d'un VPS existant :
+`scripts/bootstrap-ikoula-vps.sh` automatise Docker, le dépôt et le `.env` sur un VPS vierge (variable `BRANCH`).
+
+### Mise à jour d'un VPS existant (live → hors ligne)
 
 ```bash
-cd /opt/safevideoupload && git pull --rebase origin cursor/streaming-mvp-marathon
+cd /opt/safevideoupload
+git fetch origin cursor/offline-capture && git checkout cursor/offline-capture && git pull --ff-only
+docker compose down --remove-orphans      # arrête et supprime mediamtx
 docker compose up -d --build --force-recreate
+./scripts/diagnose.sh
+SKIP_DOCKER=1 BASE_URL=https://<DOMAIN> ./scripts/smoke-test.sh
 ```
 
-`CAPTURE_TOKEN` et `ADMIN_TOKEN` sont **obligatoires** : `docker compose` refuse de démarrer s'ils sont vides.
-Caddy refuse tout accès à `/live/*`, `/capture-auth`, `/admin-auth` et `/storage-download/*` sans le bon jeton (fail closed).
+- `.env` : `CAPTURE_TOKEN`, `ADMIN_TOKEN`, `DOMAIN` et `ACME_EMAIL` sont conservés ; les variables du direct
+  (voir ci-dessous) peuvent être supprimées, elles sont ignorées.
+- Fermer le port **8189** (udp + tcp) chez Ikoula si on veut : il ne sert plus.
+- `storage/raw` et `storage/blurred` existants restent en place (le brut du live est un autre arborescence : il reste
+  téléchargeable à la main mais n'apparaît plus dans la page admin).
 
-### Mot de passe de capture (`CAPTURE_TOKEN`)
+## Variables d'environnement (`.env`)
 
-- Utiliser une valeur **longue et aléatoire** (`openssl rand -hex 32`) : il n'y a pas de limitation de
-  tentatives, un mot de passe court serait devinable.
-- On le saisit dans le formulaire de `https://<DOMAIN>/capture/` ; il n'est **jamais** dans une URL, un
-  cookie ou un lien. Le navigateur le garde en `sessionStorage` (ou `localStorage` si « Se souvenir de ce
-  téléphone » est coché — décoché par défaut).
-- Sur le serveur : `POST /capture-auth` répond `204` si `Authorization: Bearer <CAPTURE_TOKEN>` correspond,
-  `401` sinon. WHIP (`/live/*`) n'accepte que ce même en-tête Bearer.
-- Pour changer le mot de passe sans éditer le VPS à la main : page **`https://<DOMAIN>/admin/`** (jeton
-  `ADMIN_TOKEN`), formulaire « Mot de passe capture » — le service admin met à jour `.env` et recrée Caddy.
+| Variable | Défaut | Rôle |
+| --- | --- | --- |
+| `DOMAIN`, `ACME_EMAIL` | — | HTTPS automatique (Let's Encrypt) |
+| `CAPTURE_TOKEN` | **obligatoire** | mot de passe de `/capture/` et jeton `Bearer` de `/api/upload/*` |
+| `ADMIN_TOKEN` | **obligatoire** | accès à `/admin/` (inchangé) |
+| `PUBLIC_PAGE_ENABLED` | `true` | `false` : `/`, `/videos/`, `/media/*`, `/api/public/*` répondent 404 |
+| `MAX_PART_MB` | `256` | taille max d'une partie envoyée |
+| `MIN_FREE_GB` | `2` | l'API refuse (507) les envois sous ce seuil d'espace libre |
+| `SEGMENT_SECONDS` | `60` | durée visée des segments floutés (coupés sur image clé) |
+| `BLUR_PROCESS_SCALE` | `480x270` | échelle d'analyse des visages (paysage ; inversée en portrait) |
+| `BLUR_PROCESSOR_WORKERS` | `2` | segments floutés en parallèle |
+| `BLUR_X264_PRESET` | `veryfast` | préréglage x264 de la sortie (`ultrafast` = plus rapide, plus gros) |
+| `BLUR_ASSEMBLE_SESSION` | `true` | assemble `session.mp4` une fois la session fermée et floutée |
+| `SESSION_AUTOCLOSE_S` | `21600` | ferme une session sans nouvelle partie depuis 6 h |
+| `DISK_WARN_FREE_PERCENT` | `15` | alerte admin sous ce pourcentage d'espace libre |
+| `OMP_NUM_THREADS`, `ONNXRUNTIME_*` | 2 / 2 / 1 | threads par worker de floutage |
 
-### Administration (`ADMIN_TOKEN`)
+**Supprimées** (direct) : `MEDIAMTX_RTSP_URL`, `MEDIAMTX_RTMP_URL`, `YOUTUBE_RTMP_URL`, `BLUR_CHUNK_SECONDS`,
+`BLUR_PUSH_IDLE_CLOSE_S`.
 
-- URL : `https://<DOMAIN>/admin/` — connexion avec `ADMIN_TOKEN` (distinct de `CAPTURE_TOKEN`).
-- Liste les fichiers sous `storage/raw` et `storage/blurred`, téléchargement authentifié via
-  `/storage-download/raw/*` et `/storage-download/blurred/*`.
-- API interne (derrière Caddy) : `GET /admin/api/recordings`, `POST /admin/api/capture-token` avec
-  `Authorization: Bearer <ADMIN_TOKEN>`.
+## Stockage et disque
 
-### Pare-feu
-
-Ouvrir **TCP 80, TCP 443, UDP 8189 et TCP 8189** — à la fois dans `ufw` **et** dans le pare-feu du
-fournisseur (panneau Ikoula). Le port 8189 est celui du flux WebRTC du téléphone (UDP en priorité, TCP en
-repli quand l'opérateur bloque l'UDP). RTSP, RTMP et l'API MediaMTX restent sur le réseau Docker.
-
-Le DNS de `DOMAIN` doit pointer **directement** vers l'IP du VPS (pas de proxy CDN type Cloudflare orange).
-`mediamtx/mediamtx.yml` annonce au téléphone le nom de domaine **et** l'IP publique (`webrtcAdditionalHosts`) :
-si l'IP du VPS change, la mettre à jour à cet endroit.
-
-## Utiliser la capture
-
-1. Ouvrir `https://<DOMAIN>/capture/`, saisir le mot de passe.
-2. Choisir l'orientation (**Auto** suit le téléphone ; Portrait / Paysage au besoin), **Démarrer diffusion**.
-3. La page affiche l'état réel : « EN DIRECT » n'apparaît que lorsque la connexion WebRTC est établie
-   (`connecté`), avec le chemin réseau (UDP/TCP), le débit et la taille envoyée. Si rien n'aboutit en
-   15 s, un message explique quoi vérifier ; la sauvegarde locale continue et la connexion est retentée.
-4. L'image est cadrée par la page sans jamais déformer : la sortie est 720x1280 (portrait) ou 1280x720
-   (paysage), ou le ratio réel de la caméra. Si la caméra ne sait livrer que du paysage alors que le
-   portrait est voulu, l'image est **recadrée au centre** et l'état l'indique (« Caméra 1280x720 → sortie
-   720x1280 (recadrage centré…) »).
-
-La latence du direct public vaut environ `BLUR_CHUNK_SECONDS` (**6 s** par défaut) + le temps de floutage
-(compromis CPU : segments plus courts = moins de retard mais plus de charge). Le premier segment flouté
-apparaît en pratique ~10–20 s après le début du direct selon le CPU.
-
-**Fluidité vs latence (viewer)** : la page `/viewer/` privilégie une lecture **fluide** (tampon ~10 s,
-hls.js en mode live classique, ~8–12 s derrière le bord HLS) plutôt que la latence minimale. Les segments
-floutés arrivent par paquets (~6 s) : sans ce tampon, la lecture « au bord » du direct saccade à chaque
-trou entre segments. Pour suivre le direct au plus près, il faudrait réduire `BLUR_CHUNK_SECONDS` et
-accepter plus de saccades — ou augmenter le tampon et accepter plus de retard.
-
-## Le worker de floutage
-
-Trois étapes en parallèle (`services/blur/blur_worker.py`) :
-
-1. **segmenter** : un seul `ffmpeg` lit `rtsp://mediamtx:8554/live` et écrit des segments bruts (copie,
-   Matroska) — il attend tout seul qu'un direct existe et reprend après une coupure.
-2. **processor** : normalise la cadence, applique deface (échelle d'analyse adaptée au portrait), remet
-   l'audio Opus en AAC, archive le MP4 dans `storage/blurred/chunks/`.
-3. **pusher** : relaie les segments en temps réel vers `rtmp://mediamtx:1935/blurred` (et YouTube si
-   `YOUTUBE_RTMP_URL`) avec une connexion RTMP continue.
-
-Les logs indiquent `x<ratio> temps réel` : au-dessus de 1.0 le CPU ne suit pas (le worker abandonne alors les
-plus vieux segments pour le direct ; réduire `BLUR_PROCESS_SCALE`, p. ex. `480x270`, ou prendre plus de CPU).
-
-## Diagnostic en cas de problème
-
-Sur le VPS, dans le dossier du dépôt :
-
-```bash
-./scripts/diagnose-live.sh
+```
+storage/raw/<session>/stream.{mp4,webm}   flux brut recollé (privé, jamais servi publiquement)
+storage/raw/<session>/gps.json            trace GPS
+storage/blurred/<session>/seg_NNNNN.mp4   segments floutés publics (+ session.mp4)
+storage/state/registry.db                 registre SQLite (sessions, parties, segments)
+storage/work/<session>/                   segments bruts temporaires
 ```
 
-Il affiche l'état des conteneurs, les logs WebRTC de MediaMTX, les chemins et sessions de l'API
-(`/v3/paths/list`, `/v3/webrtcsessions/list`, accessibles depuis le réseau Docker), l'existence de
-`storage/raw/live`, les ports ouverts, les accès HTTP publics et une commande `tcpdump` pour voir arriver les
-paquets du téléphone (`sudo tcpdump -ni any 'udp port 8189 or tcp port 8189'`).
+- ~**3,6 Go/h** de brut à 8 Mbit/s et ~**2,2 Go/h** de flouté. Une course de 6 h demande **plus de 50 Go** : prévoir
+  large. L'admin affiche l'espace libre et **alerte sous 15 %** ; l'API refuse les envois sous `MIN_FREE_GB`.
+- Le floutage tourne à ~**1× temps réel** sur 4 vCPU (mesuré : 20 s de vidéo 1080×1920 en ~20 s par job, 2 jobs en
+  parallèle ≈ 0,9×). Il rattrape en direct si le CPU est libre ; sinon `BLUR_X264_PRESET=ultrafast` ou une échelle
+  plus petite accélèrent. Redémarrer le conteneur `blur` reprend le travail là où il s'est arrêté.
 
-Lecture rapide :
+## Confidentialité
 
-| Symptôme | Cause probable |
-|----------|----------------|
-| MediaMTX : `session ... created` mais jamais `is publishing to path 'live'` | ICE/DTLS n'aboutit pas : pare-feu 8189 (udp+tcp), DNS/IP annoncés, réseau du téléphone |
-| `tcpdump` : 0 paquet | rien n'atteint le serveur : pare-feu fournisseur, mauvaise IP annoncée, DNS derrière un proxy |
-| `live` publié mais viewer « En attente du direct… » | le floutage n'a pas encore produit son premier segment (30–60 s), ou voir `docker compose logs blur` |
-| viewer « Connexion au serveur impossible » | Caddy/MediaMTX arrêté ou erreur HTTP ≠ 404 (le texte indique le code) |
+L'image gravée contient la **position GPS et l'heure** : elles sont donc **visibles publiquement** sur la page
+publique (le flouté ne masque que les visages). Mettre `PUBLIC_PAGE_ENABLED=false` pour tout couper. Le brut et le
+JSON GPS ne sont servis qu'avec `ADMIN_TOKEN` (liens signés à durée limitée depuis `/admin/`).
 
 ## Tests
 
 ```bash
-# Tests unitaires du worker (dans l'image Docker, ou en local avec requirements.txt + ffmpeg)
-docker compose run --rm --no-deps blur pytest -q
-
-# Smoke test de la pile Docker (build, up, accès, WHIP/HLS, API MediaMTX)
-./scripts/smoke-test.sh
-# ... ou seulement les contrôles HTTP sur un serveur déjà déployé :
-SKIP_DOCKER=1 BASE_URL=https://stream.exemple.fr ./scripts/smoke-test.sh
-
-# Page capture : Playwright + Chromium (caméra factice), portrait/paysage, mot de passe, états ICE
-cd tests/e2e && npm install && npx playwright install chromium && npm test
-E2E_FAST=1 npm test    # saute le test de timeout ICE (15 s)
+# Python (venv : pip install -r services/blur/requirements-dev.txt)
+cd services/api   && python -m pytest -q
+cd services/admin && python -m pytest -q
+cd services/blur  && python -m pytest -q       # ~30 s : ffmpeg + deface réels, flux sans trou
+# JavaScript
+node --test tests/unit/lib.test.mjs
+# E2E navigateur (Chromium + caméra factice, géolocalisation simulée, coupure réseau, Caddy réel)
+cd tests/e2e && npm install && npx playwright install chromium
+PYTHON=$HOME/venv/bin/python npm test           # E2E_SEGMENT_SECONDS=60 E2E_RECORD_SECONDS=140 pour du grandeur nature
+# Contrôle HTTP d'un déploiement (+ clip de test avec SMOKE_UPLOAD=1)
+SKIP_DOCKER=1 BASE_URL=https://<DOMAIN> ./scripts/smoke-test.sh
+./scripts/diagnose.sh
 ```
 
-Le smoke test lit `CAPTURE_TOKEN` dans l'environnement ou dans `.env` (sans l'afficher). Validation de la
-configuration Caddy : `caddy validate --adapter caddyfile --config caddy/Caddyfile` avec
-`DOMAIN`, `ACME_EMAIL` et `CAPTURE_TOKEN` définis.
+## Vérifications manuelles minimales (vrais téléphones)
 
-Non couvert par les tests automatiques : un vrai téléphone (Android Chrome, iPhone Safari) — l'orientation
-réelle des images, les codecs matériels et le réseau mobile se valident sur l'appareil.
+L'E2E utilise Chromium de bureau : **iOS Safari n'a pas été testé automatiquement**. À faire une fois :
 
-## Checklist jour J
+1. **iPhone Safari** : ouvrir `/capture/`, saisir le mot de passe, Démarrer, accepter caméra + micro + position.
+   Vérifier le format affiché (MP4), l'écran qui reste allumé, l'heure/GPS gravés dans l'aperçu.
+2. Filmer 1 min, passer en mode avion 30 s puis le retirer : les parties en attente doivent partir toutes seules
+   (panneau d'état) et la vidéo doit apparaître sur `/` après floutage, sans coupure.
+3. Interrupteur silencieux activé : le bip d'alerte peut ne pas sonner sur iPhone (vibration non prise en charge) —
+   la bannière rouge doit s'afficher quand on masque la page 2 s.
+4. **Android Chrome** : même scénario ; vérifier WebM et l'écran allumé.
+5. Garder l'onglet au **premier plan, écran allumé** : verrouiller le téléphone ou changer d'application arrête la
+   caméra sur iOS comme sur Android.
+6. Télécharger l'enregistrement brut depuis `/admin/` et le lire en entier (son + image).
 
-1. `docker compose ps` — trois services `running` ; `./scripts/diagnose-live.sh` sans erreur.
-2. `/capture/` sur le téléphone : mot de passe, **Démarrer diffusion**, attendre « EN DIRECT ».
-3. Enregistrement brut : fichiers sous `storage/raw/live/`.
-4. 40–60 s plus tard, `/viewer/` joue le flux flouté (portrait si capture en portrait).
-5. **Coupure GSM** : la page retente la connexion toute seule ; la sauvegarde locale continue.
-6. **Sauvegarde locale** : bouton « Télécharger sauvegarde » en fin d'épreuve.
-7. YouTube : renseigner `YOUTUBE_RTMP_URL` et contrôler le tableau de bord Google.
+## Limites connues
 
-## Après l'événement
-
-Les enregistrements MediaMTX sont des **fMP4 fragmentés** (segments d'1 h) ; pour assembler :
-
-```bash
-ffmpeg -f concat -safe 0 -i liste.txt -c copy sortie_marathon.mp4
-```
-
-(`liste.txt` : une ligne `file 'chemin'` par segment.) Prévoir ~14 Go pour 6 h (brut + flouté, 720p ~3 Mbps).
-
-## Développement local
-
-Dans `.env` : `DOMAIN=localhost`, un `CAPTURE_TOKEN` quelconque. Caddy sert alors `http://localhost/viewer/`
-et `http://localhost/capture/` (uniquement avec `Host: localhost` ; l'IP nue n'est jamais servie en HTTP).
-Pour tester depuis un téléphone sur le LAN, passer `webrtcIPsFromInterfaces: yes` dans
-`mediamtx/mediamtx.yml` et utiliser HTTPS (la caméra l'exige hors localhost).
+- Pas de direct : la page publique se remplit avec un délai (durée d'un segment + temps de floutage).
+- Un navigateur ne peut pas filmer écran verrouillé ou onglet en arrière-plan ; l'app alerte mais ne peut pas l'empêcher.
+- Sans GPU, Chromium de test perd des images vidéo quand le CPU est saturé ; sur téléphone l'encodage est matériel.
+- iOS peut vider IndexedDB d'un site non utilisé pendant des semaines et plafonne le quota : vider les parties
+  régulièrement (elles partent seules) et garder de la place libre ; le panneau d'état montre l'espace restant.
+- Une session fermée refuse les parties tardives (409) ; « Finaliser » dans l'admin force la clôture.
+- Le floutage dépend de la détection de visages sur images réduites : les visages très petits ou lointains peuvent
+  passer entre les mailles (augmenter `BLUR_PROCESS_SCALE`).
+- `docker compose` n'a pas pu être exécuté dans l'environnement de développement (pas de Docker) : la pile a été
+  testée en processus natifs (api, processeur, admin, Caddy 2.8) ; le `Dockerfile`/`docker-compose.yml` doivent être
+  validés au premier déploiement (`docker compose config`, `docker compose up -d --build`).

@@ -118,8 +118,8 @@ print_firewall_reminder() {
 
 ── Pare-feu VPS (recommandé) ─────────────────────────────────────
 Exposer uniquement :
-  • TCP 80, 443  — Caddy (HTTPS viewer, capture, WHIP, HLS)
-  • UDP 8189 ET TCP 8189 — ICE WebRTC (flux du téléphone ; TCP = repli)
+  • TCP 80, 443  — Caddy (page de capture, envoi des parties, page publique, admin)
+Il n'y a plus de direct WebRTC : aucun port 8189, aucun MediaMTX.
 
 Exemple ufw (à adapter, décommenter si ufw est installé) :
 
@@ -128,17 +128,14 @@ Exemple ufw (à adapter, décommenter si ufw est installé) :
   # ufw allow OpenSSH
   # ufw allow 80/tcp
   # ufw allow 443/tcp
-  # ufw allow 8189/udp
-  # ufw allow 8189/tcp
   # ufw enable
 
-Ouvrir aussi 8189 (udp + tcp) dans le pare-feu du fournisseur (panneau Ikoula).
-Ne pas publier RTSP (8554), RTMP (1935) ni l’API MediaMTX sur l’hôte public.
-
 ── Suite ─────────────────────────────────────────────────────────
-DNS : enregistrement A pour DOMAIN → IP publique du VPS.
+DNS : enregistrement A pour DOMAIN → IP publique du VPS (sans proxy CDN : parties de ~10 Mo).
 Capture : https://<DOMAIN>/capture/ (saisir CAPTURE_TOKEN dans le formulaire, jamais dans l'URL)
-Diagnostic : ./scripts/diagnose-live.sh
+Public : https://<DOMAIN>/  (désactivable : PUBLIC_PAGE_ENABLED=false dans .env)
+Espace disque : prévoir 50 Go ou plus (≈ 3,6 Go/h de brut + ≈ 2,2 Go/h de flouté).
+Diagnostic : ./scripts/diagnose.sh   —   Smoke : SKIP_DOCKER=1 BASE_URL=https://<DOMAIN> ./scripts/smoke-test.sh
 
 EOF
 }
