@@ -4,13 +4,16 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0e1117" />
     <title>Capture marathon</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <section id="gate" class="gate">
       <h1>Capture marathon</h1>
+      <p id="gate-pending" class="hint" hidden></p>
       <form id="gate-form" autocomplete="on">
         <label for="gate-password">Mot de passe</label>
         <input
@@ -32,59 +35,91 @@
     </section>
 
     <div id="app" hidden>
+      <div id="alert-banner" class="banner alarm" role="alert" hidden>
+        <strong id="alert-text"></strong>
+        <button id="alert-dismiss" type="button">J’ai compris</button>
+      </div>
+
       <header>
-        <h1>Capture live</h1>
-        <p id="status" class="status">Prêt</p>
-        <p id="framing" class="status"></p>
+        <h1>Capture marathon</h1>
+        <p id="status" class="status" aria-live="polite">Prêt</p>
       </header>
+
+      <div id="resume-banner" class="banner info" hidden>
+        <span id="resume-text"></span>
+      </div>
+      <div id="storage-banner" class="banner warn" role="status" hidden></div>
+      <div id="net-banner" class="banner warn" role="status" hidden>
+        <span id="net-banner-text"></span>
+        <form id="reauth-form" class="reauth" hidden>
+          <input id="reauth-password" type="password" autocomplete="current-password" placeholder="Mot de passe" />
+          <button type="submit">Valider</button>
+        </form>
+      </div>
 
       <main>
         <div id="preview-frame" class="preview-frame">
-          <canvas id="overlay-canvas" width="720" height="1280"></canvas>
+          <canvas id="overlay-canvas" width="1080" height="1920"></canvas>
           <p id="preview-placeholder" class="placeholder">Caméra arrêtée</p>
+          <p id="rec-badge" class="rec-badge" hidden><span class="dot"></span><span id="rec-badge-time">00:00</span></p>
         </div>
         <video id="camera" class="source" playsinline muted autoplay></video>
 
-        <section class="panel">
+        <div class="actions">
+          <button id="btn-start" type="button" class="big start">● Démarrer l’enregistrement</button>
+          <button id="btn-stop" type="button" class="big stop" hidden>■ Arrêter</button>
+        </div>
+        <div id="stop-confirm" class="confirm" hidden role="alertdialog" aria-labelledby="stop-confirm-text">
+          <p id="stop-confirm-text">Arrêter l’enregistrement ? Ce qui n’est pas encore envoyé reste sur le téléphone et sera envoyé dès que le réseau revient.</p>
+          <div class="actions">
+            <button id="stop-yes" type="button" class="big stop">Oui, arrêter</button>
+            <button id="stop-no" type="button" class="big neutral">Continuer à filmer</button>
+          </div>
+        </div>
+
+        <section class="panel" aria-label="État">
+          <dl class="meta">
+            <dt>Enregistrement</dt>
+            <dd id="m-rec">—</dd>
+            <dt>Parties</dt>
+            <dd id="m-parts">—</dd>
+            <dt>Réseau</dt>
+            <dd id="m-net">—</dd>
+            <dt>Envoi</dt>
+            <dd id="m-upload">—</dd>
+            <dt>GPS</dt>
+            <dd id="m-gps">—</dd>
+            <dt>Heure</dt>
+            <dd id="m-clock">—</dd>
+            <dt>Sur le téléphone</dt>
+            <dd id="m-local">—</dd>
+            <dt>Écran</dt>
+            <dd id="m-screen">—</dd>
+            <dt>Format</dt>
+            <dd id="m-format">—</dd>
+          </dl>
+          <p id="net-error" class="error" role="alert"></p>
+          <button id="btn-download" type="button" class="secondary" hidden>Télécharger tout ce qui n’est pas envoyé</button>
+        </section>
+
+        <details class="panel settings">
+          <summary>Réglages</summary>
           <label for="orientation">Orientation de l’image</label>
           <select id="orientation">
-            <option value="auto" selected>Auto (suit le téléphone)</option>
-            <option value="portrait">Portrait (vertical)</option>
+            <option value="portrait" selected>Portrait (vertical)</option>
+            <option value="auto">Auto (suit le téléphone)</option>
             <option value="landscape">Paysage (horizontal)</option>
           </select>
-
-          <p class="hint">
-            Le direct part vers <code>/live/whip</code> sur ce site (protocole WHIP : POST + SDP + jeton Bearer).
-            Ouvrir cette adresse dans un navigateur affiche « Authentification requise » : ce n’est pas une page web.
-          </p>
-
-          <div class="actions">
-            <button id="btn-start" type="button">Démarrer diffusion</button>
-            <button id="btn-stop" type="button" disabled>Arrêter</button>
-            <button id="btn-backup" type="button" disabled>Télécharger sauvegarde</button>
-          </div>
-
-          <p id="net-error" class="error" role="alert"></p>
-
-          <dl class="meta">
-            <dt>Connexion</dt>
-            <dd id="net-connection">—</dd>
-            <dt>ICE</dt>
-            <dd id="net-ice">—</dd>
-            <dt>Chemin réseau</dt>
-            <dd id="net-path">—</dd>
-            <dt>Envoi</dt>
-            <dd id="net-send">—</dd>
-            <dt>GPS</dt>
-            <dd id="gps">—</dd>
-            <dt>Heure</dt>
-            <dd id="clock">—</dd>
-            <dt>Sauvegarde locale</dt>
-            <dd id="backup-size">0 Mo</dd>
-          </dl>
-
+          <label for="format">Format d’enregistrement</label>
+          <select id="format">
+            <option value="auto" selected>Automatique (recommandé)</option>
+            <option value="mp4">MP4 (Safari)</option>
+            <option value="webm">WebM (Chrome)</option>
+            <option value="webm-h264">WebM H.264 (si le téléphone chauffe)</option>
+          </select>
+          <p class="hint">Les réglages s’appliquent au prochain enregistrement.</p>
           <button id="btn-lock" type="button" class="secondary">Verrouiller la page</button>
-        </section>
+        </details>
       </main>
     </div>
 

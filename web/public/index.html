@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Marathon — vidéos</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        --bg: #0e1117;
+        --panel: #171b24;
+        --line: #272d3a;
+        --accent: #4f8cff;
+        --muted: #9aa4b5;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: #eef1f6;
+        line-height: 1.4;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 1rem 1rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        margin: 0.5rem 0 0.15rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin: 0 0 1rem;
+      }
+      .layout {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+        align-items: start;
+      }
+      @media (max-width: 760px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+      .player {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.6rem;
+        position: sticky;
+        top: 0.5rem;
+        z-index: 2;
+      }
+      video {
+        width: 100%;
+        max-height: 68vh;
+        aspect-ratio: 9 / 16;
+        background: #000;
+        border-radius: 8px;
+        display: block;
+        object-fit: contain;
+      }
+      .now {
+        margin: 0.5rem 0.2rem 0.2rem;
+        font-size: 0.92rem;
+        min-height: 1.3em;
+      }
+      .controls {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 0.4rem 0.2rem 0.2rem;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+      .controls label {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-right: auto;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: #232a38;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.4rem 0.8rem;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+      }
+      h2.day {
+        font-size: 1.05rem;
+        margin: 1.4rem 0 0.2rem;
+        text-transform: capitalize;
+        position: sticky;
+        top: 0;
+        background: var(--bg);
+        padding: 0.3rem 0;
+      }
+      h2.day:first-child {
+        margin-top: 0;
+      }
+      h3.hour {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin: 0.7rem 0 0.35rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      ul.items {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.4rem;
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      }
+      .item {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        padding: 0.55rem 0.7rem;
+        background: var(--panel);
+      }
+      .item .t {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .item .d {
+        color: var(--muted);
+        font-size: 0.82rem;
+      }
+      .item[aria-current="true"] {
+        border-color: var(--accent);
+        background: #1b2740;
+      }
+      .state {
+        color: var(--muted);
+        padding: 2rem 0;
+      }
+      .error {
+        color: #ff9d8f;
+      }
+      footer {
+        margin-top: 2.5rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Marathon — vidéos</h1>
+      <p class="sub">Vidéos floutées (visages), classées par date et heure de tournage. Heure de Paris.</p>
+
+      <div class="layout">
+        <section class="player" aria-label="Lecteur">
+          <video id="player" controls playsinline preload="metadata"></video>
+          <p id="now" class="now">Choisissez une vidéo dans la liste.</p>
+          <div class="controls">
+            <label><input id="auto" type="checkbox" checked /> Lecture continue</label>
+            <button id="prev" type="button" aria-label="Vidéo précédente">&larr; Précédente</button>
+            <button id="next" type="button" aria-label="Vidéo suivante">Suivante &rarr;</button>
+          </div>
+        </section>
+
+        <main id="list" aria-live="polite">
+          <p class="state">Chargement des vidéos…</p>
+        </main>
+      </div>
+
+      <footer>
+        L’heure et les coordonnées GPS sont incrustées dans l’image. Les visages sont floutés automatiquement ;
+        la détection n’est pas infaillible.
+      </footer>
+    </div>
+
+    <script>
+      const player = document.getElementById("player");
+      const listEl = document.getElementById("list");
+      const nowEl = document.getElementById("now");
+      const autoEl = document.getElementById("auto");
+      const TZ = "Europe/Paris";
+      const POLL_MS = 30000;
+
+      const fmtDay = new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      const fmtDayKey = new Intl.DateTimeFormat("sv-SE", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+      const fmtHourKey = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, hour: "2-digit", hourCycle: "h23" });
+      const fmtTime = new Intl.DateTimeFormat("fr-FR", { timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+
+      let videos = [];
+      let currentId = null;
+      let signature = "";
+
+      function duration(s) {
+        const t = Math.round(s);
+        return t >= 60 ? `${Math.floor(t / 60)} min ${String(t % 60).padStart(2, "0")} s` : `${t} s`;
+      }
+
+      function indexOfCurrent() {
+        return videos.findIndex((v) => v.id === currentId);
+      }
+
+      function play(id, userInitiated) {
+        const video = videos.find((v) => v.id === id);
+        if (!video) return;
+        currentId = id;
+        player.src = video.url;
+        nowEl.textContent = `${fmtDay.format(video.start_ms)} · ${fmtTime.format(video.start_ms)} · ${duration(video.duration)}`;
+        const p = player.play();
+        if (p && p.catch) p.catch(() => {});
+        markCurrent();
+        const el = listEl.querySelector(`[data-id="${CSS.escape(id)}"]`);
+        if (el && !userInitiated) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+
+      function markCurrent() {
+        listEl.querySelectorAll(".item").forEach((b) => {
+          b.setAttribute("aria-current", String(b.dataset.id === currentId));
+        });
+      }
+
+      function render() {
+        if (!videos.length) {
+          listEl.innerHTML = '<p class="state">Aucune vidéo pour l’instant. Les vidéos apparaissent ici quelques minutes après le tournage.</p>';
+          return;
+        }
+        const days = new Map();
+        for (const v of videos) {
+          const dayKey = fmtDayKey.format(v.start_ms);
+          const hourKey = fmtHourKey.format(v.start_ms);
+          if (!days.has(dayKey)) days.set(dayKey, { label: fmtDay.format(v.start_ms), hours: new Map() });
+          const day = days.get(dayKey);
+          if (!day.hours.has(hourKey)) day.hours.set(hourKey, []);
+          day.hours.get(hourKey).push(v);
+        }
+        let html = "";
+        for (const day of days.values()) {
+          html += `<section class="day-group"><h2 class="day">${day.label}</h2>`;
+          for (const [hour, items] of day.hours) {
+            html += `<h3 class="hour">${hour} h</h3><ul class="items">`;
+            for (const v of items) {
+              html +=
+                `<li><button type="button" class="item" data-id="${v.id}" data-start="${v.start_ms}">` +
+                `<span class="t">${fmtTime.format(v.start_ms)}</span><span class="d">${duration(v.duration)}</span></button></li>`;
+            }
+            html += "</ul>";
+          }
+          html += "</section>";
+        }
+        listEl.innerHTML = html;
+        markCurrent();
+      }
+
+      async function refresh() {
+        try {
+          const res = await fetch("/api/public/videos", { cache: "no-store" });
+          if (!res.ok) throw new Error(res.status === 404 ? "La page publique est désactivée." : `Erreur ${res.status}`);
+          const data = await res.json();
+          const sig = data.videos.map((v) => v.id).join(",");
+          if (sig === signature) return;
+          signature = sig;
+          videos = data.videos;
+          render();
+        } catch (err) {
+          if (!videos.length) listEl.innerHTML = `<p class="state error">${err.message || "Impossible de charger la liste."}</p>`;
+        }
+      }
+
+      listEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".item");
+        if (btn) play(btn.dataset.id, true);
+      });
+
+      player.addEventListener("ended", () => {
+        if (!autoEl.checked) return;
+        const next = videos[indexOfCurrent() + 1];
+        if (next) play(next.id, false);
+      });
+
+      player.addEventListener("error", () => {
+        if (currentId) nowEl.textContent += " — lecture impossible, passez à la suivante.";
+      });
+
+      document.getElementById("next").addEventListener("click", () => {
+        const next = videos[indexOfCurrent() + 1] || (indexOfCurrent() < 0 ? videos[0] : null);
+        if (next) play(next.id, true);
+      });
+      document.getElementById("prev").addEventListener("click", () => {
+        const prev = videos[indexOfCurrent() - 1];
+        if (prev) play(prev.id, true);
+      });
+
+      refresh();
+      setInterval(refresh, POLL_MS);
+    </script>
+  </body>
+</html>
