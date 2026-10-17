@@ -8,11 +8,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY blur/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY common/registry.py /app/common/registry.py
+COPY blur/blur_utils.py blur/processor.py /app/blur/
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-u", "blur_worker.py"]
+CMD ["python", "-u", "/app/blur/processor.py"]

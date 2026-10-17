@@ -1,4 +1,4 @@
-"""Utilitaires de floutage (deface / CenterFace ONNX) pour segments courts."""
+"""Utilitaires de floutage (deface / CenterFace ONNX) pour segments de ~1 minute."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -27,11 +28,11 @@ def configure_inference_threads() -> dict[str, str]:
             applied[key] = val
     return applied
 
-# Image clé toutes les ~1 s : segments HLS courts et exigence YouTube (<= 4 s).
+# Image clé toutes les ~1 s : lecture progressive avec Range et déplacement dans la vidéo fluides.
 DEFACE_FFMPEG_CONFIG = {
     "codec": "libx264",
     "macro_block_size": 1,
-    "output_params": ["-g", "30", "-preset", "veryfast"],
+    "output_params": ["-g", "30", "-preset", os.environ.get("BLUR_X264_PRESET", "veryfast")],
 }
 
 
@@ -44,8 +45,8 @@ def parse_scale(scale: str) -> tuple[int, int]:
 def oriented_scale(scale: str, width: int, height: int) -> str:
     """Adapte l'échelle d'inférence deface à l'orientation de la vidéo.
 
-    BLUR_PROCESS_SCALE est écrit en paysage (ex. 640x360). Pour une vidéo
-    portrait (720x1280) on l'inverse en 360x640 : sinon l'image serait écrasée
+    BLUR_PROCESS_SCALE est écrit en paysage (ex. 480x270). Pour une vidéo
+    portrait (1080x1920) on l'inverse en 270x480 : sinon l'image serait écrasée
     avant détection et les visages mal repérés.
     """
     sw, sh = parse_scale(scale)
@@ -59,10 +60,10 @@ TARGET_FPS = 30
 
 
 def normalize_to_cfr(raw_path: Path, output_path: Path, fps: int = TARGET_FPS) -> None:
-    """Réencode la vidéo d'un segment WebRTC en cadence constante (sans audio).
+    """Réencode la vidéo d'un segment brut en cadence constante (sans audio).
 
-    Les segments issus du WebRTC sont à cadence variable et ffmpeg y annonce
-    1000 i/s (30000 i/s moyens) : deface en déduirait une sortie absurde, très lente.
+    MediaRecorder produit une cadence variable (webm : 1000 i/s annoncées) : deface en
+    déduirait une sortie absurde, très lente.
     """
     cmd = [
         "ffmpeg",
@@ -96,18 +97,18 @@ def normalize_to_cfr(raw_path: Path, output_path: Path, fps: int = TARGET_FPS) -
 def run_deface_on_file(
     input_path: Path,
     output_path: Path,
-    scale: str = "640x360",
+    scale: str = "480x270",
     replacewith: str = "blur",
     keep_audio: bool = False,
 ) -> None:
     """Applique deface (backend ONNX) sur un fichier vidéo.
 
-    Par défaut la sortie est sans audio : deface recopie l'audio tel quel, or
-    le WebRTC fournit de l'Opus, que ni MP4 ni FLV (RTMP) ne savent porter.
-    L'audio est remis en AAC par `blur_segment`.
+    Par défaut la sortie est sans audio : l'audio d'origine (Opus en webm) est remis en AAC
+    par `blur_segment`.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    deface_bin = shutil.which("deface") or "deface"
+    sibling = Path(sys.executable).parent / "deface"
+    deface_bin = shutil.which("deface") or (str(sibling) if sibling.exists() else "deface")
     cmd = [
         deface_bin,
         str(input_path),
@@ -170,7 +171,7 @@ def probe_media(path: Path) -> dict:
 def blur_segment(
     raw_path: Path,
     output_path: Path,
-    scale: str = "640x360",
+    scale: str = "480x270",
     replacewith: str = "blur",
 ) -> dict:
     """Floute un segment brut (n'importe quel codec) -> MP4 H.264 + AAC.
@@ -225,3 +226,22 @@ def has_video_stream(path: Path) -> bool:
         text=True,
     )
     return proc.returncode == 0 and "video" in proc.stdout
+
+
+def concat_copy(parts: list[Path], output_path: Path) -> None:
+    """Assemble des MP4 de mêmes paramètres (H.264 + AAC) sans ré-encodage."""
+    listing = output_path.with_suffix(".concat.txt")
+    listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in parts), encoding="utf-8")
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0",
+                "-i", str(listing), "-c", "copy", "-movflags", "+faststart", str(output_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"concaténation : {proc.stderr.strip()}")
+    finally:
+        listing.unlink(missing_ok=True)
