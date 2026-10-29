@@ -7,7 +7,7 @@ set -euo pipefail
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/safevideoupload}"
 BRANCH="${BRANCH:-main}"
-REPO_URL="${REPO_URL:-https://origin.cursor.com/git/pedro-crescencio/tmp-6a228cc1f8aa5e15.git}"
+REPO_URL="${REPO_URL:-https://github.com/pedronac/safevideoupload.git}"
 
 log() { echo "==> $*"; }
 

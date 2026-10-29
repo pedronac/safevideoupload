@@ -1,5 +1,12 @@
 .env
+.env.*
+!.env.example
 storage/
+caddy/data/
+caddy/config/
+*.pem
+*.key
+id_rsa*
 *.log
 .DS_Store
 node_modules/
